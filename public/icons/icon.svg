@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="64" fill="#000"/>
+  <g stroke="#34d399" stroke-width="20" fill="none" stroke-linejoin="round">
+    <path d="M80 256 L160 256 L200 200 L312 200 L352 256 L432 256"/>
+    <circle cx="160" cy="256" r="16" fill="#34d399"/>
+    <circle cx="352" cy="256" r="16" fill="#34d399"/>
+  </g>
+  <text x="256" y="380" text-anchor="middle" fill="#ededef" font-family="monospace" font-size="48" font-weight="bold">&amp; ↔ VHDL</text>
+</svg>

@@ -1,0 +1,23 @@
+node_modules
+dist
+*.local
+
+# env
+.env
+.env.*.local
+
+# logs
+*.log
+npm-debug.log*
+
+# editor
+.DS_Store
+*.swp
+*.swo
+
+# TypeScript
+*.tsbuildinfo
+
+# Vite / vitest
+.vite/
+coverage/

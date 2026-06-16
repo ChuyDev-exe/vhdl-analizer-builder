@@ -1,0 +1,64 @@
+# SPDX-License-Identifier: MIT
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE: 20
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        cmd:
+          - name: typecheck
+            run: npm run typecheck
+          - name: lint
+            run: npm run lint
+          - name: format
+            run: npm run format:check
+          - name: test
+            run: npm test
+          - name: build
+            run: npm run build
+    name: ${{ matrix.cmd.name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE }}
+          cache: npm
+      - run: npm install && ${{ matrix.cmd.run }}
+
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    needs: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE }}
+          cache: npm
+      - run: npm install && npm run build
+        env:
+          VITE_BASE_URL: /${{ github.event.repository.name }}/
+      - run: npx --yes gh-pages -d dist -u "github-actions <actions@github.com>" -m "deploy: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
