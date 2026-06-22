@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { FiChevronRight, FiCpu, FiCode, FiBarChart2, FiShare2, FiZap, FiLayers, FiBook, FiPlay } from "react-icons/fi";
+import { FiChevronRight, FiCpu, FiCode, FiBarChart2, FiShare2, FiZap, FiLayers, FiBook, FiPlay, FiGrid } from "react-icons/fi";
 import Header from "../../components/shared/Header";
 import Footer from "../../components/shared/Footer";
 import MetaTags from "../../components/MetaTags";
@@ -18,6 +18,7 @@ interface DocSection {
 
 const SECTIONS: DocSection[] = [
   { icon: FiPlay, titleKey: "docs.section.getting_started", descKey: "docs.section.getting_started.desc", link: "/get-started", linkKey: "docs.link.getting_started" },
+  { icon: FiGrid, titleKey: "docs.section.examples", descKey: "docs.section.examples.desc", link: "/examples", linkKey: "docs.link.examples" },
   {
     icon: FiCpu, titleKey: "docs.section.editor", descKey: "docs.section.editor.desc",
     items: ["docs.section.editor.item1", "docs.section.editor.item2", "docs.section.editor.item3", "docs.section.editor.item4"],
@@ -60,8 +61,17 @@ export default function DocsPage() {
       />
       <Header />
       <section className="docs-hero">
+        <div className="docs-hero-bg" />
         <h1>{t("docs.title")}</h1>
         <p>{t("docs.subtitle")}</p>
+        <div className="docs-hero-links">
+          <Link to="/get-started" className="docs-hero-btn">
+            <FiPlay size={14} /> {t("docs.link.getting_started")}
+          </Link>
+          <Link to="/examples" className="docs-hero-btn">
+            <FiGrid size={14} /> {t("docs.link.examples")}
+          </Link>
+        </div>
       </section>
       <div className="docs-grid">
         {SECTIONS.map((section, i) => {

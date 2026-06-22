@@ -1,7 +1,47 @@
 .docs-page { background: var(--bg); color: var(--text); min-height: 100vh; }
-.docs-hero { text-align: center; padding: 80px 24px 40px; }
-.docs-hero h1 { font-size: 42px; font-weight: 800; margin: 0 0 12px; }
-.docs-hero p { font-size: 16px; color: var(--muted); margin: 0; }
+
+.docs-hero {
+  position: relative;
+  text-align: center;
+  padding: 100px 24px 48px;
+  overflow: hidden;
+}
+.docs-hero-bg {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 600px 300px at 50% 0%, rgba(52,211,153,0.06) 0%, transparent 70%),
+    radial-gradient(ellipse 400px 200px at 80% 60%, rgba(59,130,246,0.04) 0%, transparent 60%);
+  pointer-events: none;
+}
+.docs-hero h1 { font-size: 42px; font-weight: 800; margin: 0 0 12px; position: relative; }
+.docs-hero p { font-size: 16px; color: var(--muted); margin: 0 0 24px; position: relative; }
+.docs-hero-links {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  position: relative;
+}
+.docs-hero-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+  text-decoration: none;
+  transition: border-color 0.15s, background 0.15s;
+}
+.docs-hero-btn:hover {
+  border-color: var(--accent-2);
+  background: var(--panel-2);
+}
+
 .docs-grid {
   max-width: 1000px; margin: 0 auto; padding: 0 24px 80px;
   display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px;

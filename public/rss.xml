@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>LogicFlow Blog &amp; Changelog</title>
+    <link>https://logicflow.dev/blog</link>
+    <description>Novedades, tutoriales y actualizaciones de LogicFlow, el simulador de circuitos lógicos.</description>
+    <language>es-mx</language>
+    <lastBuildDate>Mon, 22 Jun 2026 00:00:00 GMT</lastBuildDate>
+    <atom:link href="https://logicflow.dev/rss.xml" rel="self" type="application/rss+xml"/>
+    <item>
+      <title>Changelog: Junio 2026</title>
+      <link>https://logicflow.dev/blog/changelog-junio</link>
+      <guid>https://logicflow.dev/blog/changelog-junio</guid>
+      <pubDate>Mon, 22 Jun 2026 00:00:00 GMT</pubDate>
+      <description>Novedades de este mes: exportación ZIP, diff visual de versiones, dashboard mejorado, y más.</description>
+      <category>Changelog</category>
+    </item>
+    <item>
+      <title>Lanzamiento de LogicFlow v1.0</title>
+      <link>https://logicflow.dev/blog/v1.0</link>
+      <guid>https://logicflow.dev/blog/v1.0</guid>
+      <pubDate>Mon, 15 Jun 2026 00:00:00 GMT</pubDate>
+      <description>Anunciamos el lanzamiento oficial de LogicFlow, una herramienta web gratuita para diseñar y simular circuitos lógicos con soporte VHDL bidireccional.</description>
+      <category>Announcement</category>
+    </item>
+    <item>
+      <title>Colaboración en tiempo real: trabaja con tu equipo en el mismo circuito</title>
+      <link>https://logicflow.dev/blog/colaboracion-tiempo-real</link>
+      <guid>https://logicflow.dev/blog/colaboracion-tiempo-real</guid>
+      <pubDate>Wed, 10 Jun 2026 00:00:00 GMT</pubDate>
+      <description>Nueva funcionalidad que permite a múltiples usuarios editar simultáneamente un circuito, con cursores, comentarios en nodos y sincronización instantánea.</description>
+      <category>Feature</category>
+    </item>
+    <item>
+      <title>Primeros pasos: cómo diseñar tu primer circuito</title>
+      <link>https://logicflow.dev/blog/primeros-pasos</link>
+      <guid>https://logicflow.dev/blog/primeros-pasos</guid>
+      <pubDate>Fri, 05 Jun 2026 00:00:00 GMT</pubDate>
+      <description>Guía paso a paso para crear tu primer circuito lógico desde cero, desde las compuertas básicas hasta la simulación completa.</description>
+      <category>Tutorial</category>
+    </item>
+    <item>
+      <title>VHDL bidireccional: del diagrama al código y viceversa</title>
+      <link>https://logicflow.dev/blog/vhdl-bidireccional</link>
+      <guid>https://logicflow.dev/blog/vhdl-bidireccional</guid>
+      <pubDate>Thu, 28 May 2026 00:00:00 GMT</pubDate>
+      <description>Cómo funciona la sincronización bidireccional entre el editor visual y el código VHDL, y cómo aprovecharla al máximo.</description>
+      <category>Tutorial</category>
+    </item>
+  </channel>
+</rss>

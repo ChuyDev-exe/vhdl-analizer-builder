@@ -338,5 +338,8 @@
   "docs.section.api.item2": "Project CRUD",
   "docs.section.api.item3": "Remote export",
   "docs.section.api.item4": "Rate limits by plan",
-  "docs.link.getting_started": "Go to getting started"
+  "docs.link.getting_started": "Go to getting started",
+  "docs.section.examples": "Examples",
+  "docs.section.examples.desc": "Ready-to-explore example circuits you can modify.",
+  "docs.link.examples": "View examples"
 }

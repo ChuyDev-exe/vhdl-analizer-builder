@@ -338,5 +338,8 @@
   "docs.section.api.item2": "CRUD de proyectos",
   "docs.section.api.item3": "Exportación remota",
   "docs.section.api.item4": "Rate limits por plan",
-  "docs.link.getting_started": "Ir a primeros pasos"
+  "docs.link.getting_started": "Ir a primeros pasos",
+  "docs.section.examples": "Ejemplos",
+  "docs.section.examples.desc": "Circuitos de ejemplo listos para explorar y modificar.",
+  "docs.link.examples": "Ver ejemplos"
 }

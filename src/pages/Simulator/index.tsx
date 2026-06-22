@@ -15,6 +15,7 @@ import {
   type EdgeChange,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import { toPng } from "html-to-image";
 import { DndProvider, useDrop } from "react-dnd";
 import { HTML5Backend } from "react-dnd-html5-backend";
 import { Link, useNavigate } from "react-router-dom";
@@ -67,12 +68,20 @@ import {
   FiActivity,
   FiHome,
   FiUser,
+  FiImage,
+  FiPrinter,
+  FiDroplet,
+  FiMap,
+  FiSidebar,
 } from "react-icons/fi";
 import "../../styles.css";
 import { useI18n } from "../../i18n";
 import { HeaderDropdown, type DropdownItem } from "../../HeaderDropdown";
 import { useTheme } from "../../contexts/ThemeContext";
 import { SimulatorThemeProvider, useSimulatorTheme } from "../../contexts/SimulatorThemeContext";
+import { ToastProvider, useToast } from "../../components/shared/Toast";
+import HistoryPanel from "../../components/shared/HistoryPanel";
+import PropertiesPanel from "../../components/shared/PropertiesPanel";
 
 const nodeTypes = { logic: LogicNode };
 const CIRCUIT_KEY = "simlog.circuito.v1";
@@ -158,6 +167,15 @@ function Flow() {
   const redoStack = useRef<string[]>([]);
   const runSimRef = useRef<() => void>(() => {});
   const statusRef = useRef<HTMLDivElement>(null);
+  const reactFlowInstance = useReactFlow();
+  const { toast } = useToast();
+  const [selectedNode, setSelectedNode] = useState<RFNode | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [bgColor, setBgColor] = useState("");
+  const [showMinimap, setShowMinimap] = useState(true);
+  const [exporting, setExporting] = useState(false);
+  const [alignGuides, setAlignGuides] = useState<{ type: "h" | "v"; pos: number }[]>([]);
+  const [propsOpen, setPropsOpen] = useState(false);
 
   const serializeToHash = useCallback(() => {
     try {
@@ -320,6 +338,38 @@ function Flow() {
     const removing = changes.some((c) => c.type === "remove");
     if (removing) pushHistory();
     const next = applyNodeChanges(changes, nodesRef.current) as RFNode[];
+
+    const dragging = changes.find((c) => c.type === "position" && c.dragging);
+    if (dragging && "position" in dragging && dragging.position) {
+      const moved = next.find((n) => n.id === dragging.id);
+      if (moved) {
+        const guides: { type: "h" | "v"; pos: number }[] = [];
+        const margin = 6;
+        for (const n of nodesRef.current) {
+          if (n.id === moved.id) continue;
+          if (Math.abs(n.position.x - moved.position.x) < margin) {
+            guides.push({ type: "v", pos: n.position.x });
+          }
+          if (Math.abs(n.position.y - moved.position.y) < margin) {
+            guides.push({ type: "h", pos: n.position.y });
+          }
+          const myRight = moved.position.x + 80;
+          const nRight = n.position.x + 80;
+          if (Math.abs(nRight - myRight) < margin) {
+            guides.push({ type: "v", pos: nRight });
+          }
+          const myBottom = moved.position.y + 40;
+          const nBottom = n.position.y + 40;
+          if (Math.abs(nBottom - myBottom) < margin) {
+            guides.push({ type: "h", pos: nBottom });
+          }
+        }
+        setAlignGuides(guides);
+      }
+    } else {
+      setAlignGuides([]);
+    }
+
     nodesRef.current = next;
     setNodes(next);
     if (removing) { queueMicrotask(runSim); syncCodeFromDiagram(); }
@@ -346,6 +396,8 @@ function Flow() {
   }, [runSim, syncCodeFromDiagram, pushHistory]);
 
   const onNodeClick = useCallback((_: unknown, node: RFNode) => {
+    setSelectedNode(node);
+    setPropsOpen(true);
     if (node.data.kind !== "INPUT") return;
     const next = nodesRef.current.map((nd) => (nd.id === node.id ? { ...nd, data: { ...nd.data, value: (nd.data.value === 1 ? 0 : 1) as Sig } } : nd));
     if (delayModeRef.current) {
@@ -355,6 +407,15 @@ function Flow() {
     } else { const r = commit(next); recordSample(r); }
     setStatus(t("app.status.toggled", { label: node.data.label || node.id }));
   }, [commit, recordSample]);
+
+  const onNodeDoubleClick = useCallback((_: unknown, node: RFNode) => {
+    const { x, y } = node.position;
+    reactFlowInstance.setCenter(x + 50, y + 30, { zoom: 2, duration: 300 });
+  }, [reactFlowInstance]);
+
+  const onPaneClick = useCallback(() => {
+    setSelectedNode(null);
+  }, []);
 
   const nextNodeId = useCallback(() => {
     const max = nodesRef.current.reduce((m, n) => {
@@ -691,6 +752,41 @@ function Flow() {
     setStatus(t("app.status.cleared"));
   };
 
+  const exportImage = useCallback(async () => {
+    const el = document.querySelector(".react-flow") as HTMLElement;
+    if (!el) return;
+    setExporting(true);
+    try {
+      const dataUrl = await toPng(el, { backgroundColor: bgColor || undefined });
+      const a = document.createElement("a");
+      a.href = dataUrl;
+      a.download = (entNameRef.current || "circuito") + ".png";
+      a.click();
+      toast("Imagen exportada", "ok");
+    } catch {
+      toast("Error al exportar imagen", "err");
+    }
+    setExporting(false);
+  }, [bgColor, toast]);
+
+  const printCircuit = useCallback(() => {
+    const el = document.querySelector(".react-flow") as HTMLElement;
+    if (!el) {
+      window.print();
+      return;
+    }
+    toPng(el, { backgroundColor: bgColor || "#ffffff" }).then((dataUrl) => {
+      const w = window.open("", "_blank");
+      if (!w) { window.print(); return; }
+      w.document.write(`
+        <html><head><title>LogicFlow - ${entNameRef.current || "circuito"}</title>
+        <style>body{margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#fff}img{max-width:100%;height:auto}</style>
+        </head><body><img src="${dataUrl}" onload="window.print();window.close()" /></body></html>
+      `);
+      w.document.close();
+    }).catch(() => window.print());
+  }, [bgColor]);
+
   const exportVCD = () => download("ondas.vcd", toVCD(waveRows(nodesRef.current), waveHist), "text/plain");
   const exportTb = () => download((entName || "circuito") + "_tb.vhd", generateTestbench(nodesRef.current, edgesRef.current, entName, waveHist), "text/plain");
 
@@ -791,6 +887,20 @@ function Flow() {
               items={[
                 { label: t("menu.view.editor"), icon: FiCode, onClick: openEditor },
                 { label: t("menu.view.waveform"), icon: FiBarChart2, onClick: () => setWaveOpen((w) => !w) },
+                { label: showMinimap ? "Ocultar minimapa" : "Mostrar minimapa", icon: FiMap, onClick: () => setShowMinimap((s) => !s) },
+                { label: historyOpen ? "Ocultar historial" : "Mostrar historial", icon: FiRotateCcw, onClick: () => setHistoryOpen((h) => !h) },
+                { label: propsOpen || editorOpen ? "Cerrar panel" : "Propiedades", icon: FiSidebar, onClick: () => { if (propsOpen || editorOpen) { setPropsOpen(false); setEditorOpen(false); } else { setPropsOpen(true); } } },
+                { separator: true },
+                { label: "Exportar como PNG", icon: FiImage, onClick: exportImage },
+                { label: "Imprimir / PDF", icon: FiPrinter, onClick: printCircuit },
+                { label: "Fondo: personalizado", icon: FiDroplet, onClick: () => {
+                  const input = document.createElement("input");
+                  input.type = "color";
+                  input.value = bgColor || (theme === "dark" ? "#000000" : "#f5f5f5");
+                  input.addEventListener("input", () => setBgColor(input.value));
+                  input.click();
+                }},
+                { separator: true },
                 { label: theme === "dark" ? t("menu.view.theme_light") : t("menu.view.theme_dark"), icon: theme === "dark" ? FiSun : FiMoon, onClick: () => setTheme((t) => (t === "dark" ? "light" : "dark")) },
                 { label: t("menu.view.help"), icon: FiHelpCircle, onClick: () => setHelpOpen(true) },
                 {
@@ -828,12 +938,45 @@ function Flow() {
               <SimCanvas>
                 {(simTheme) => (
                   <div className="canvas-wrap" ref={dropRef as any}>
-                    <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeClick={onNodeClick as any} snapToGrid={snap} snapGrid={[20, 20]} fitView proOptions={{ hideAttribution: true }} defaultEdgeOptions={{ animated: false }}>
+                    <ReactFlow
+                      nodes={nodes}
+                      edges={edges}
+                      nodeTypes={nodeTypes}
+                      onNodesChange={onNodesChange}
+                      onEdgesChange={onEdgesChange}
+                      onConnect={onConnect}
+                      onNodeClick={onNodeClick as any}
+                      onNodeDoubleClick={onNodeDoubleClick as any}
+                      onPaneClick={onPaneClick}
+                      snapToGrid={snap}
+                      snapGrid={[20, 20]}
+                      fitView
+                      proOptions={{ hideAttribution: true }}
+                      defaultEdgeOptions={{ animated: false }}
+                      style={{ background: bgColor || undefined }}
+                    >
                       <Background gap={20} color={simTheme.gridColor} />
                       <Controls />
-                      <MiniMap pannable zoomable nodeColor={simTheme.nodeColor} maskColor={simTheme.maskColor} />
+                      {showMinimap && <MiniMap pannable zoomable nodeColor={simTheme.nodeColor} maskColor={simTheme.maskColor} style={{ border: "1px solid var(--border)", borderRadius: 8 }} />}
+                      {alignGuides.map((g, i) => (
+                        <div
+                          key={i}
+                          className={`align-guide ${g.type === "h" ? "h" : "v"}`}
+                          style={g.type === "h" ? { top: g.pos, left: 0, right: 0 } : { left: g.pos, top: 0, bottom: 0 }}
+                        />
+                      ))}
                     </ReactFlow>
                     <div className="status" ref={statusRef} role="status" aria-live="polite" aria-atomic="true">{status}</div>
+                    {historyOpen && (
+                      <div className="canvas-overlay top-right">
+                        <HistoryPanel
+                          undoStack={undoStack.current}
+                          redoStack={redoStack.current}
+                          onUndo={undo}
+                          onRedo={redo}
+                        />
+                      </div>
+                    )}
                     {(diag.loops > 0 || diag.floating > 0 || diag.dup.length > 0) && (
                       <div className="diag" title={t("diag.title")}>
                         {diag.loops > 0 && <span className="diag-err">{t("diag.loops", { n: diag.loops })}</span>}
@@ -847,37 +990,68 @@ function Flow() {
             </SimulatorThemeProvider>
             {waveOpen && <Waveform nodes={nodes} history={waveHist} onExportVCD={exportVCD} onClose={() => setWaveOpen(false)} onClear={() => setWaveHist([])} delayMode={delayMode} />}
           </section>
-          {editorOpen && (
+          {(editorOpen || propsOpen) && (
             <aside className="vhdl-panel">
-              <div className="vhdl-head"><h2>{t("vhdl.editor")}</h2><button className="btn btn-small" onClick={() => setEditorOpen(false)}>✕</button></div>
-              <label className="ent-name">{t("vhdl.entity")}<input value={entName} onChange={(e) => { setEntName(e.target.value); entNameRef.current = e.target.value; syncCodeFromDiagram(); }} /></label>
-              <div className="vhdl-actions">
-                <button className="btn btn-small btn-primary" onClick={genVhdl}>{t("vhdl.diagram_to_code")}</button>
-                <button className="btn btn-small" onClick={() => buildVhdl(vhdl, true)}>{t("vhdl.code_to_diagram")}</button>
-                <button className="btn btn-small" onClick={() => { const f = formatVhdl(vhdl); setVhdl(f); }}>Formatear</button>
-                <label className="chk" title={t("vhdl.auto_sync_title")}><input type="checkbox" checked={autoSync} onChange={(e) => { setAutoSync(e.target.checked); autoSyncRef.current = e.target.checked; if (e.target.checked) setVhdl(generateVhdl(nodesRef.current, edgesRef.current, entNameRef.current)); }} /> {t("vhdl.auto_sync")}</label>
+              <div className="vhdl-tabs">
+                <button
+                  className={`vhdl-tab${editorOpen && !propsOpen ? " active" : ""}`}
+                  onClick={() => { setEditorOpen(true); setPropsOpen(false); }}
+                >
+                  <FiCode size={13} /> VHDL
+                </button>
+                <button
+                  className={`vhdl-tab${propsOpen ? " active" : ""}`}
+                  onClick={() => { setPropsOpen(true); setEditorOpen(false); }}
+                >
+                  <FiSidebar size={13} /> Propiedades
+                </button>
+                <button className="btn btn-small" style={{ marginLeft: "auto" }} onClick={() => { setEditorOpen(false); setPropsOpen(false); }}>✕</button>
               </div>
-              <div className="vhdl-editor">
-                <div className="vhdl-gutter" ref={gutterRef} aria-hidden="true">{Array.from({ length: Math.max(1, vhdl.split("\n").length) }, (_, i) => i + 1).join("\n")}</div>
-                <div className="vhdl-code">
-                  <pre className="vhdl-pre" aria-hidden="true" ref={preRef} dangerouslySetInnerHTML={{ __html: highlightVhdl(vhdl) || " " }} />
-                  <textarea className="vhdl-text" spellCheck={false} value={vhdl} onChange={(e) => onVhdlChange(e.target.value)} placeholder={t("vhdl.placeholder")} ref={textAreaRef} onScroll={syncScroll} onKeyDown={handleKeyDown} />
-                  {completions && (
-                    <div className="vhdl-completions">
-                      {completions.map((c, i) => (
-                        <div key={c.word} className={`vhdl-comp ${i === completionIdx ? "sel" : ""}`} onPointerDown={(e) => { e.preventDefault(); completeWord(c.snippet); }}>{c.word}</div>
-                      ))}
+
+              {editorOpen && !propsOpen && (
+                <>
+                  <label className="ent-name">{t("vhdl.entity")}<input value={entName} onChange={(e) => { setEntName(e.target.value); entNameRef.current = e.target.value; syncCodeFromDiagram(); }} /></label>
+                  <div className="vhdl-actions">
+                    <button className="btn btn-small btn-primary" onClick={genVhdl}>{t("vhdl.diagram_to_code")}</button>
+                    <button className="btn btn-small" onClick={() => buildVhdl(vhdl, true)}>{t("vhdl.code_to_diagram")}</button>
+                    <button className="btn btn-small" onClick={() => { const f = formatVhdl(vhdl); setVhdl(f); }}>Formatear</button>
+                    <label className="chk" title={t("vhdl.auto_sync_title")}><input type="checkbox" checked={autoSync} onChange={(e) => { setAutoSync(e.target.checked); autoSyncRef.current = e.target.checked; if (e.target.checked) setVhdl(generateVhdl(nodesRef.current, edgesRef.current, entNameRef.current)); }} /> {t("vhdl.auto_sync")}</label>
+                  </div>
+                  <div className="vhdl-editor">
+                    <div className="vhdl-gutter" ref={gutterRef} aria-hidden="true">{Array.from({ length: Math.max(1, vhdl.split("\n").length) }, (_, i) => i + 1).join("\n")}</div>
+                    <div className="vhdl-code">
+                      <pre className="vhdl-pre" aria-hidden="true" ref={preRef} dangerouslySetInnerHTML={{ __html: highlightVhdl(vhdl) || " " }} />
+                      <textarea className="vhdl-text" spellCheck={false} value={vhdl} onChange={(e) => onVhdlChange(e.target.value)} placeholder={t("vhdl.placeholder")} ref={textAreaRef} onScroll={syncScroll} onKeyDown={handleKeyDown} />
+                      {completions && (
+                        <div className="vhdl-completions">
+                          {completions.map((c, i) => (
+                            <div key={c.word} className={`vhdl-comp ${i === completionIdx ? "sel" : ""}`} onPointerDown={(e) => { e.preventDefault(); completeWord(c.snippet); }}>{c.word}</div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
-              </div>
-              {vhdl.trim() && (lintErrs.length ? <div className="lint">{lintErrs.map((e, i) => (<div key={i} className="lint-err">⚠ línea {e.line}: {e.msg}</div>))}</div> : <div className="lint lint-ok">{t("vhdl.lint_ok")}</div>)}
-              <div className="vhdl-foot">
-                <button className="btn btn-small" onClick={() => navigator.clipboard.writeText(vhdl)}>{t("vhdl.copy")}</button>
-                <button className="btn btn-small" onClick={() => download((entName || "circuito") + ".vhd", vhdl || generateVhdl(nodesRef.current, edgesRef.current, entName))}>{t("vhdl.download")}</button>
-                <button className="btn btn-small" title={t("vhdl.testbench")} onClick={exportTb}>{t("vhdl.testbench")}</button>
-                <span className={"vhdl-msg " + msg.cls}>{msg.t}</span>
-              </div>
+                  </div>
+                  {vhdl.trim() && (lintErrs.length ? <div className="lint">{lintErrs.map((e, i) => (<div key={i} className="lint-err">⚠ línea {e.line}: {e.msg}</div>))}</div> : <div className="lint lint-ok">{t("vhdl.lint_ok")}</div>)}
+                  <div className="vhdl-foot">
+                    <button className="btn btn-small" onClick={() => navigator.clipboard.writeText(vhdl)}>{t("vhdl.copy")}</button>
+                    <button className="btn btn-small" onClick={() => download((entName || "circuito") + ".vhd", vhdl || generateVhdl(nodesRef.current, edgesRef.current, entName))}>{t("vhdl.download")}</button>
+                    <button className="btn btn-small" title={t("vhdl.testbench")} onClick={exportTb}>{t("vhdl.testbench")}</button>
+                    <span className={"vhdl-msg " + msg.cls}>{msg.t}</span>
+                  </div>
+                </>
+              )}
+
+              {propsOpen && !editorOpen && (
+                <PropertiesPanel
+                  node={selectedNode}
+                  onClose={() => setPropsOpen(false)}
+                  onUpdate={(id, patch) => {
+                    setNodeData(id, patch);
+                    const nd = nodesRef.current.find((n) => n.id === id);
+                    if (nd) setSelectedNode(nd);
+                  }}
+                />
+              )}
             </aside>
           )}
         </div>
@@ -902,7 +1076,9 @@ export default function SimulatorPage() {
   return (
     <DndProvider backend={HTML5Backend}>
       <ReactFlowProvider>
-        <Flow />
+        <ToastProvider>
+          <Flow />
+        </ToastProvider>
       </ReactFlowProvider>
     </DndProvider>
   );

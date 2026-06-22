@@ -136,18 +136,19 @@ Oportunidades de mejora para el **Simulador de Circuitos Lógicos · VHDL ⇄ Di
 - ⏳ **Alinear/distribuir** nodos seleccionados.
 - ⏳ **Tooltips en puertos** (handles).
 - ✅ **Tour guiado** (TourModal con 7 pasos).
+- ✅ **Logo SVG** con chip + pulsos de señal + pines IC, usa `currentColor` (verde `--on`). Mismo logo en header, footer y loader.
 - ⏳ **Atajos personalizables**.
 - ⏳ **Barra de progreso** para operaciones largas.
 - ✅ **Modo oscuro automático** (`prefers-color-scheme`): tema inicial desde localStorage o sistema; una vez cargado, no reacciona a cambios del SO para evitar cambios inesperados.
-- ⏳ **Historial visible de undo/redo**.
-- ⏳ **Exportar diagrama a imagen** (React Flow).
-- ⏳ **Selector de color de fondo** del lienzo.
-- ⏳ **Guías de alineación** entre nodos.
-- ⏳ **Zoom con doble clic** en nodo.
-- ⏳ **Notificaciones toast**.
-- ⏳ **Panel de propiedades lateral**.
-- ⏳ **Mini-mapa interactivo** (navegable).
-- ⏳ **Vista de impresión/PDF**.
+- ✅ **Historial visible de undo/redo** — panel flotante en canvas con pila visual.
+- ✅ **Exportar diagrama a imagen** — `html-to-image` → PNG (View → Exportar como PNG).
+- ✅ **Selector de color de fondo** del lienzo — color picker en View.
+- ✅ **Guías de alineación** entre nodos — líneas dashed verdes al arrastrar.
+- ✅ **Zoom con doble clic** en nodo — `setCenter` con zoom 2× animado.
+- ✅ **Notificaciones toast** — `ToastProvider` con auto-dismiss.
+- ✅ **Panel de propiedades lateral** — inspector contextual con tabs VHDL/Propiedades.
+- ✅ **Mini-mapa interactivo** (navegable) — toggle + borde estilizado.
+- ✅ **Vista de impresión/PDF** — exporta PNG + `window.print()` con media query.
 
 ## 6. Persistencia y proyectos
 
@@ -182,7 +183,10 @@ Oportunidades de mejora para el **Simulador de Circuitos Lógicos · VHDL ⇄ Di
 - ◐ **Refactor parcial** de App.tsx (extracted `useUIState` hook, `HeaderDropdown` componente propio). Pendiente: extraer `useCircuit`, `useSimulation`, `useVhdl`.
 - ⏳ **Tests de integración** UI (waveform, paleta).
 - ✅ **Tipado estricto** en props — todas las 22 definiciones de componentes revisadas y completas, cero `any`.
-- ✅ **Separación de responsabilidades** — UI state extraído a `hooks/useUIState.ts`, `HeaderDropdown` a componente propio, imports limpios.
+- ✅ **Separación de responsabilidades** — UI state extraído a `contexts/ThemeContext.tsx` (reemplaza `useUIState.ts`), `HeaderDropdown` a componente propio, imports limpios.
+- ✅ **ThemeContext global** — `ThemeContext` envuelve toda la app en `main.tsx` (theme, highContrast, fontSize). `SimulatorThemeContext` exclusivo para colores del canvas (grid, MiniMap, mask).
+- ✅ **Node ID seguro** — `nextNodeId()` escanea `nodesRef.current` para evitar colisiones `c\d+` en MiniMap.
+- ✅ **React Router Future Flags** — `v7_startTransition` y `v7_relativeSplatPath` para migración a v7.
 
 ## 8. Rendimiento
 
@@ -221,15 +225,15 @@ Oportunidades de mejora para el **Simulador de Circuitos Lógicos · VHDL ⇄ Di
 
 ## 11. Legales
 
-- ✅ LICENSE (MIT).
+- ✅ LICENSE (All Rights Reserved).
 - ✅ SPDX-License-Identifier en todos los .ts/.tsx.
 - ✅ THIRD_PARTY.md (dependencias y licencias).
 - ✅ CONTRIBUTING.md (PRs, estilo, Conventional Commits).
 - ✅ CODE_OF_CONDUCT.md (Contributor Covenant v2.1).
 - ✅ SECURITY.md (reporte de vulnerabilidades).
 - ✅ SUPPORT.md (issues, discussions).
-- ✅ TERMS.md (términos de servicio).
-- ✅ PRIVACY.md (política de privacidad).
+- ✅ TERMS.md (términos de servicio) + página `/terms`.
+- ✅ PRIVACY.md (política de privacidad) + página `/privacy`.
 
 ## 12. Accesibilidad
 
@@ -251,18 +255,19 @@ Oportunidades de mejora para el **Simulador de Circuitos Lógicos · VHDL ⇄ Di
 - ✅ Selector de idioma en UI (View → Language).
 - ✅ Detección automática (`navigator.language` + persistencia en localStorage).
 - ✅ Arquitectura preparada para traducciones comunitarias (JSON planos por idioma).
-- ⏳ Formato localizado (`Intl`).
-- ⏳ Documentación multilingüe.
+- ✅ Formato localizado (`Intl`).
+- ✅ Documentación multilingüe.
 
 ## 14. Landing page, cuentas y suscripciones
 
 ### Landing page
 - ✅ **Diseño profesional** con hero, features, demo interactiva embebida, precios y FAQ.
-- ⏳ **Modo "presentación"** del simulador: banner fijo + tooltips explicativos para visitantes.
+- ✅ **Modo "presentación"** del simulador: banner fijo + tooltips explicativos para visitantes.
 - ✅ **Demo sin registro**: circuito de ejemplo precargado con tabs (Circuito/Señales/Código VHDL).
-- ⏳ **Meta tags OG** (Open Graph) para compartir en redes: titulo, descripción, preview del circuito.
-- ⏳ **Blog / changelog público** con capture de nuevas features y tutoriales.
-- ⏳ **SEO**: sitemap.xml, robots.txt, SSR/SSG para la landing (Next.js o Astro como micro-frontend).
+- ✅ **Meta tags OG** (Open Graph) para compartir en redes: titulo, descripción, preview del circuito.
+- ✅ **Blog / changelog público** con diseño Astro-style (hero gradiente, grid 2-columnas, avatares, category pills).
+- ✅ **RSS feed** — `/rss.xml` con todos los artículos del blog.
+- ✅ **SEO**: sitemap.xml, robots.txt, RSS, SSR/SSG para la landing (Next.js o Astro como micro-frontend).
 - ✅ **Página de precios** con tabla comparativa (Free / Pro / Team).
 
 ### Autenticación y cuentas
@@ -276,15 +281,15 @@ Oportunidades de mejora para el **Simulador de Circuitos Lógicos · VHDL ⇄ Di
 - ✅ **Eliminación de cuenta** con exportación de datos (GDPR).
 
 ### Dashboard de proyectos
-- ⏳ **Panel principal** al iniciar sesión: lista de proyectos del usuario con preview (miniatura SVG del circuito).
-- ⏳ **Búsqueda y filtros**: por nombre, etiqueta, fecha, favorito, tipo (combinacional/secuencial/buses).
-- ⏳ **Vista en cuadrícula / lista** toggleable.
-- ⏳ **Proyectos compartidos** con permiso de solo lectura / edición.
-- ⏳ **Historial de versiones** por proyecto (cada autoguardado crea un snapshot).
-- ⏳ **Diff visual** entre dos versiones de un mismo circuito.
-- ⏳ **Exportación masiva** (seleccionar varios → descargar ZIP con JSON + VHDL + PNG).
-- ⏳ **Papelera / trash** con período de retención (30 días).
-- ⏳ **Estadísticas** por proyecto (número de componentes, compuertas, FFs, nivel de profundidad).
+- ✅ **Panel principal** al iniciar sesión: lista de proyectos del usuario con preview (miniatura SVG del circuito).
+- ✅ **Búsqueda y filtros**: por nombre, etiqueta, fecha (rango picker), favorito, tipo (combinacional/secuencial/buses).
+- ✅ **Vista en cuadrícula / lista** toggleable con persistencia.
+- ✅ **Proyectos compartidos** con permiso de solo lectura / edición.
+- ✅ **Historial de versiones** por proyecto (cada autoguardado crea un snapshot, hook `useVersionHistory` compartido).
+- ✅ **Diff visual** entre dos versiones de un mismo circuito (modal con resaltado).
+- ✅ **Exportación masiva** (seleccionar varios → descargar ZIP con JSON + VHDL + SVG + metadata).
+- ✅ **Papelera / trash** con período de retención (30 días) y restauración.
+- ✅ **Estadísticas** por proyecto (número de componentes, compuertas, FFs, nivel de profundidad real).
 
 ### Colaboración
 - ⏳ **Compartir por link** con permisos (vista / comentario / edición).

@@ -10,6 +10,7 @@ import BlogPage from "./pages/Blog";
 import BlogPostPage from "./pages/Blog/Post";
 import DocsPage from "./pages/Docs";
 import GetStartedPage from "./pages/GetStarted";
+import ExamplesPage from "./pages/Examples";
 import TermsPage from "./pages/Terms";
 import PrivacyPage from "./pages/Privacy";
 
@@ -26,6 +27,7 @@ export default function App() {
       <Route path="/auth/:provider/callback" element={<AuthCallback />} />
       <Route path="/docs" element={<DocsPage />} />
       <Route path="/get-started" element={<GetStartedPage />} />
+      <Route path="/examples" element={<ExamplesPage />} />
       <Route path="/terms" element={<TermsPage />} />
       <Route path="/privacy" element={<PrivacyPage />} />
     </Routes>

@@ -1,9 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="64" fill="#000"/>
-  <g stroke="#34d399" stroke-width="20" fill="none" stroke-linejoin="round">
-    <path d="M80 256 L160 256 L200 200 L312 200 L352 256 L432 256"/>
-    <circle cx="160" cy="256" r="16" fill="#34d399"/>
-    <circle cx="352" cy="256" r="16" fill="#34d399"/>
+  <rect width="512" height="512" rx="100" fill="#000000"/>
+  <g transform="translate(256,256)" fill="none" stroke="#34d399" stroke-linejoin="round">
+    <rect x="-180" y="-180" width="360" height="360" rx="80" stroke-width="16" fill="rgba(52,211,153,0.04)"/>
+    <path d="M-120 100 L-120 -20 L-40 -20 L-40 100 L40 100 L40 -20 L120 -20 L120 100" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="-120" cy="100" r="18" fill="#34d399"/>
+    <circle cx="120" cy="100" r="18" fill="#34d399"/>
+    <line x1="-180" y1="-120" x2="-140" y2="-120" stroke-width="14" stroke-linecap="round"/>
+    <line x1="-180" y1="-60" x2="-140" y2="-60" stroke-width="14" stroke-linecap="round"/>
+    <line x1="-180" y1="60" x2="-140" y2="60" stroke-width="14" stroke-linecap="round"/>
+    <line x1="-180" y1="120" x2="-140" y2="120" stroke-width="14" stroke-linecap="round"/>
+    <line x1="140" y1="-120" x2="180" y2="-120" stroke-width="14" stroke-linecap="round"/>
+    <line x1="140" y1="-60" x2="180" y2="-60" stroke-width="14" stroke-linecap="round"/>
+    <line x1="140" y1="60" x2="180" y2="60" stroke-width="14" stroke-linecap="round"/>
+    <line x1="140" y1="120" x2="180" y2="120" stroke-width="14" stroke-linecap="round"/>
   </g>
-  <text x="256" y="380" text-anchor="middle" fill="#ededef" font-family="monospace" font-size="48" font-weight="bold">&amp; ↔ VHDL</text>
 </svg>
