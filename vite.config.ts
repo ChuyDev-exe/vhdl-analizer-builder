@@ -10,7 +10,7 @@ export default defineConfig({
       includeAssets: ["icons/icon.svg"],
       manifest: {
         name: "Simulador de Circuitos Lógicos · VHDL ⇄ Diagrama",
-        short_name: "Simulador Lógico",
+        short_name: "LogicFlow",
         description: "Editor de circuitos lógicos con VHDL bidireccional y diagrama de tiempos",
         theme_color: "#000000",
         background_color: "#000000",

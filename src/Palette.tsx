@@ -83,6 +83,20 @@ function PaletteItem({
 export default function Palette({ customVersion, onDeleteCustom }: { customVersion: number; onDeleteCustom?: (k: string) => void }) {
   const { t } = useI18n();
   const [filter, setFilter] = useState("");
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("simlog.palette.collapsed") || "{}");
+    } catch {
+      return {};
+    }
+  });
+
+  const toggleCat = (cat: string) =>
+    setCollapsed((prev) => {
+      const next = { ...prev, [cat]: !prev[cat] };
+      localStorage.setItem("simlog.palette.collapsed", JSON.stringify(next));
+      return next;
+    });
 
   const groups: Record<string, Array<[string, CompDef]>> = {
     "Entradas / Salidas": [],
@@ -126,16 +140,32 @@ export default function Palette({ customVersion, onDeleteCustom }: { customVersi
       {total === 0 && filter && <div className="pal-empty">{t("palette.empty_filter", { q: filter })}</div>}
       {Object.entries(groups).map(([cat, items]) => {
         if (items.length === 0 && cat !== "Personalizados") return null;
+        // While filtering, keep groups expanded so matches stay visible.
+        const isCollapsed = !filter && !!collapsed[cat];
+        const catLabel = t(CAT_TO_KEY[cat] || cat);
         return (
           <div className="pal-group" key={cat + customVersion}>
-            <div className="pal-group-title">
-              {t(CAT_TO_KEY[cat] || cat)}
+            <button
+              type="button"
+              className="pal-group-title"
+              onClick={() => toggleCat(cat)}
+              aria-expanded={!isCollapsed}
+              aria-label={t(isCollapsed ? "palette.expand_cat" : "palette.collapse_cat", { cat: catLabel })}
+            >
+              <span className="pal-chevron" aria-hidden="true">
+                {isCollapsed ? "▸" : "▾"}
+              </span>
+              {catLabel}
               <span className="pal-count">{items.length}</span>
-            </div>
-            {items.length === 0 && cat === "Personalizados" && <div className="pal-empty">{t(CAT_TO_EMPTY_KEY[cat] || cat)}</div>}
-            {items.map(([kind, def]) => (
-              <PaletteItem key={kind} kind={kind} def={def} name={displayLabel(def)} t={t} onDelete={cat === "Personalizados" ? onDeleteCustom : undefined} />
-            ))}
+            </button>
+            {!isCollapsed && (
+              <>
+                {items.length === 0 && cat === "Personalizados" && <div className="pal-empty">{t(CAT_TO_EMPTY_KEY[cat] || cat)}</div>}
+                {items.map(([kind, def]) => (
+                  <PaletteItem key={kind} kind={kind} def={def} name={displayLabel(def)} t={t} onDelete={cat === "Personalizados" ? onDeleteCustom : undefined} />
+                ))}
+              </>
+            )}
           </div>
         );
       })}

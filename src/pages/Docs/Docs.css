@@ -1,0 +1,30 @@
+.docs-page { background: var(--bg); color: var(--text); min-height: 100vh; }
+.docs-hero { text-align: center; padding: 80px 24px 40px; }
+.docs-hero h1 { font-size: 42px; font-weight: 800; margin: 0 0 12px; }
+.docs-hero p { font-size: 16px; color: var(--muted); margin: 0; }
+.docs-grid {
+  max-width: 1000px; margin: 0 auto; padding: 0 24px 80px;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px;
+}
+.docs-card {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+  padding: 28px; transition: border-color 0.2s, transform 0.2s;
+}
+.docs-card:hover { border-color: var(--accent-2); transform: translateY(-2px); }
+.docs-card-icon {
+  width: 44px; height: 44px; border-radius: 10px;
+  background: var(--panel-2); border: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  margin-bottom: 14px; color: var(--on);
+}
+.docs-card h2 { font-size: 17px; font-weight: 600; margin: 0 0 6px; }
+.docs-card p { font-size: 13px; color: var(--muted); margin: 0 0 14px; line-height: 1.5; }
+.docs-card-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.docs-card-list li { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.docs-card-list li svg { flex-shrink: 0; color: var(--on); }
+.docs-card-link {
+  display: inline-flex; align-items: center; gap: 4px;
+  margin-top: 14px; font-size: 13px; font-weight: 600;
+  color: var(--on); text-decoration: none; transition: gap 0.15s;
+}
+.docs-card-link:hover { gap: 8px; }

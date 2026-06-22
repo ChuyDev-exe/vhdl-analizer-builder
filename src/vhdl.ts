@@ -227,9 +227,20 @@ export function buildFromVhdl(text: string): BuildResult {
   const entName = em ? em[1] : "circuito";
 
   const ports: Record<string, "in" | "out"> = {};
+  const vecPorts: Record<string, { dir: "in" | "out"; width: number }> = {};
   const pm = /port\s*\(([\s\S]*?)\)\s*;/i.exec(src);
   if (pm)
     pm[1].split(";").forEach((decl) => {
+      // STD_LOGIC_VECTOR ports: name : in|out STD_LOGIC_VECTOR(N-1 downto 0)
+      const vm = /([a-z0-9_,\s]+):\s*(in|out)\s+std_logic_vector\s*\(\s*(\d+)\s+downto\s+0\s*\)/i.exec(decl);
+      if (vm) {
+        vm[1].split(",").forEach((n) => {
+          const nm = n.trim();
+          if (nm) vecPorts[nm] = { dir: vm[2].toLowerCase() as "in" | "out", width: +vm[3] + 1 };
+        });
+        return;
+      }
+      // STD_LOGIC scalar ports
       const m = /([a-z0-9_,\s]+):\s*(in|out)\s+std_logic\b/i.exec(decl);
       if (m)
         m[1].split(",").forEach((n) => {
@@ -239,92 +250,299 @@ export function buildFromVhdl(text: string): BuildResult {
     });
 
   // señales vectoriales: signal name : STD_LOGIC_VECTOR(H downto 0)  -> ancho H+1
+  // también: signal name : UNSIGNED(H downto 0), SIGNED(H downto 0)
   const vec: Record<string, number> = {};
   let vm: RegExpExecArray | null;
-  const vecRe = /signal\s+([a-z0-9_,\s]+):\s*std_logic_vector\s*\(\s*(\d+)\s+downto\s+0\s*\)/gi;
+  const vecRe = /signal\s+([a-z0-9_,\s]+):\s*(?:std_logic_vector|unsigned|signed)\s*\(\s*(\d+)\s+downto\s+0\s*\)/gi;
   while ((vm = vecRe.exec(src)))
     vm[1].split(",").forEach((n) => {
       const nm = n.trim();
       if (nm) vec[nm] = +vm![2] + 1;
     });
 
+  // alias: alias new_name is old_name; (resolver como passthrough)
+  const aliasMap: Record<string, string> = {};
+  let am_alias: RegExpExecArray | null;
+  const aliasRe = /alias\s+([a-z0-9_]+)\s*(?::\s*[a-z0-9_]+\s+)?is\s+([a-z0-9_]+)\s*;/gi;
+  while ((am_alias = aliasRe.exec(src))) aliasMap[am_alias[1].toLowerCase()] = am_alias[2];
+  const resolveAliases = (s: string) => {
+    let r = s;
+    for (const a in aliasMap) r = r.replace(new RegExp(`\\b${a}\\b`, "gi"), aliasMap[a]);
+    return r;
+  };
+
+  // Resolver alias en puertos
+  const aliasedSrc = resolveAliases(src);
+
   const ffDriver: Record<string, { d: string; clk: string; rst?: string; init?: string }> = {};
-  const regAssign: Record<string, { clk: string; bits: Record<number, string> }> = {}; // registros vectoriales
+  const regAssign: Record<string, { clk: string; bits: Record<number, string> }> = {};
   const clkNames = new Set<string>();
+  const sigDriver: Record<string, string> = {};
+
+  // Convierte un bloque if/case anidado a expresión when/else para una señal dada
+  function ctrlToWhen(target: string, body: string): string | null {
+    let found: string | null = null;
+    // case SEL is when '0' => tgt <= v0; when '1' => tgt <= v1; when others => vd;
+    const caseRe = /case\s+(\w+)\s+is([\s\S]*?)end\s+case\s*;/i.exec(body);
+    if (caseRe) {
+      const sel = caseRe[1];
+      const cases = caseRe[2];
+      const branches: Array<{ cond: string; val: string }> = [];
+      let othersVal: string | null = null;
+      let cm: RegExpExecArray | null;
+      const whenRe = /when\s+(?:'([01])'|"([01]+)"|(others))\s*=>([\s\S]*?)(?=\bwhen\b|end\s+case)/gi;
+      while ((cm = whenRe.exec(cases))) {
+        const val = cm[4].trim();
+        const am = new RegExp(`\\b${target}\\s*<=([^;]+);`, "i").exec(val);
+        const expr = am ? am[1].trim() : null;
+        if (cm[3] === "others") othersVal = expr;
+        else if (cm[1] !== undefined) branches.push({ cond: `${sel}='${cm[1]}'`, val: expr || "" });
+        else if (cm[2] !== undefined) {
+          const bits = cm[2].split("").map((b) => b === "1" ? 1 : 0);
+          const condParts = bits.map((b, i) => `${sel}(${i})='${b}'`);
+          branches.push({ cond: condParts.join(" and "), val: expr || "" });
+        }
+      }
+      // convertir a when/else chain
+      let expr: string | null = null;
+      for (let i = branches.length - 1; i >= 0; i--) {
+        const b = branches[i];
+        const nxt: string = expr || othersVal || "'0'";
+        expr = `${b.val} when ${b.cond} else ${nxt}`;
+      }
+      if (expr) { found = expr; }
+    }
+    // if-elsif-else: if cond then tgt <= v1; elsif cond2 then tgt <= v2; else v3; end if;
+    const ifRe = /\bif\s+(.+?)\s+then([\s\S]*?)((?:elsif\s+.+?)\s+then[\s\S]*?)?\belse\s+([\s\S]*?)\bend\s+if\s*;/i.exec(body);
+    if (ifRe && !ifRe[0].toLowerCase().includes("rising_edge")) {
+      const cond = ifRe[1];
+      const thenBlock = ifRe[2];
+      const elseBlock = ifRe[4];
+      // handle elsif parts recursively
+      let rest = ifRe[3] ? ifRe[3].trim() : null;
+      const am = new RegExp(`\\b${target}\\s*<=([^;]+);`, "i").exec(thenBlock);
+      const thenVal = am ? am[1].trim() : null;
+      const am2 = new RegExp(`\\b${target}\\s*<=([^;]+);`, "i").exec(elseBlock);
+      let elseVal = am2 ? am2[1].trim() : null;
+      // Recursively parse elsif as nested if
+      if (rest && /elsif\s+/i.test(rest)) {
+        const sub = rest.replace(/^elsif\s+/i, "if ").replace(/\s+then\s*/i, " then ");
+        const subResult = ctrlToWhen(target, sub + " else " + elseBlock + " end if;");
+        if (subResult) elseVal = subResult;
+      }
+      if (thenVal) {
+        found = `${thenVal} when ${cond} else ${elseVal || "'0'"}`;
+      }
+    }
+    return found;
+  }
+
   let pr: RegExpExecArray | null;
   const procRe = /process\s*\([\s\S]*?\)([\s\S]*?)end\s+process\s*;/gi;
   while ((pr = procRe.exec(src))) {
-    const body = pr[1];
-    const cm = /rising_edge\s*\(\s*([a-z0-9_]+)\s*\)/i.exec(body);
-    if (!cm) continue;
-    clkNames.add(cm[1].toLowerCase());
-    // asignaciones a bits de vector:  name(i) <= expr;  -> registro
-    let vi: RegExpExecArray | null;
-    const vidxRe = /([a-z0-9_]+)\s*\(\s*(\d+)\s*\)\s*<=\s*([^;]+);/gi;
-    while ((vi = vidxRe.exec(body))) {
-      const nm = vi[1].trim();
-      (regAssign[nm] || (regAssign[nm] = { clk: cm[1], bits: {} })).bits[+vi[2]] = vi[3].trim();
-    }
-    // asignaciones escalares:  q <= d;  -> flip-flop D (excluye las indexadas)
-    let am: RegExpExecArray | null;
-    const asgRe = /([a-z0-9_]+)\s*<=\s*([^;]+);/gi;
-    while ((am = asgRe.exec(body))) ffDriver[am[1].trim()] = { d: am[2].trim(), clk: cm[1] };
+    let body = pr[1];
+    // Convertir "wait until rising_edge(clk);" a "if rising_edge(clk) then" para procesamiento uniforme
+    body = body.replace(/wait\s+until\s+rising_edge\s*\(\s*([a-z0-9_]+)\s*\)\s*;/gi, "if rising_edge($1) then end_if_marker;");
+    // Convertir "wait on clk;" a marcador de proceso clockeado
+    body = body.replace(/wait\s+on\s+([a-z0-9_]+)\s*;/gi, "if rising_edge($1) then end_if_marker;");
+    // Remover after/transport/inertial de las asignaciones
+    body = body.replace(/after\s+[\d\s]+(?:ns|ps|ms|us)?/gi, "");
+    body = body.replace(/\btransport\b/gi, "");
+    body = body.replace(/\binertial\b/gi, "");
+    // Convertir variables (asignación :=) a señales (<=) como aproximación
+    // Eliminar declaraciones de variable
+    body = body.replace(/variable\s+[^;]+;/gi, "");
+    // Convertir := a <=
+    body = body.replace(/:=/g, "<=");
 
-    // reset asíncrono:  if rst='1' then q<='0'; elsif rising_edge(clk) then q<=d; end if;
-    const arm = /if\s*\(?\s*([a-z0-9_]+)\s*(?:=\s*'1')?\s*\)?\s*then([\s\S]*?)elsif\s+rising_edge\s*\(\s*([a-z0-9_]+)\s*\)\s*then([\s\S]*?)end\s+if/i.exec(
-      body,
-    );
+    const cm = /rising_edge\s*\(\s*([a-z0-9_]+)\s*\)/i.exec(body);
+
+    // Proceso combinacional (sin rising_edge): convertir if/case a when/else concurrente
+    if (!cm) {
+      if (!/\bif\b/i.test(body) && !/\bcase\b/i.test(body)) continue;
+      const sigRe = /\b([a-z0-9_]+)\s*<=/gi;
+      let sm: RegExpExecArray | null;
+      const drivenSignals = new Set<string>();
+      while ((sm = sigRe.exec(body))) drivenSignals.add(sm[1].toLowerCase());
+      for (const sig of drivenSignals) {
+        const expr = ctrlToWhen(sig, body);
+        if (expr && !sigDriver[sig]) sigDriver[sig] = expr;
+      }
+      continue;
+    }
+
+    const clkName = cm[1];
+    clkNames.add(clkName.toLowerCase());
+
+    // Extraer reset asíncrono: if rst='1' then q<='0'; elsif rising_edge(clk) then q<=d; end if;
+    const arm = /if\s*\(?\s*([a-z0-9_]+)\s*(?:=\s*'1')?\s*\)?\s*then([\s\S]*?)elsif\s+rising_edge\s*\(\s*([a-z0-9_]+)\s*\)\s*then([\s\S]*?)end\s+if/i.exec(body);
+    const clkBody = arm ? arm[4] : body.replace(/if\s+(?:not\s+)?rising_edge\s*\(\s*[a-z0-9_]+\s*\)\s*then/i, "").replace(/end\s+if\s*;$/i, "");
+
     if (arm) {
-      const rstSig = arm[1],
-        resetBody = arm[2],
-        clk2 = arm[3],
-        clkBody = arm[4];
+      const rstSig = arm[1], resetBody = arm[2], clk2 = arm[3];
       const initOf: Record<string, string> = {};
       let rm: RegExpExecArray | null;
       const rre = /([a-z0-9_]+)\s*<=\s*([^;]+);/gi;
       while ((rm = rre.exec(resetBody))) initOf[rm[1].trim()] = rm[2].trim();
-      let dm: RegExpExecArray | null;
-      const dre = /([a-z0-9_]+)\s*<=\s*([^;]+);/gi;
-      while ((dm = dre.exec(clkBody))) {
-        const tgt = dm[1].trim();
-        ffDriver[tgt] = { d: dm[2].trim(), clk: clk2, rst: rstSig, init: initOf[tgt] };
+      // Dentro del rising_edge: convertir if/case a when/else
+      const sigRe = /\b([a-z0-9_]+)\s*<=/gi;
+      let sm2: RegExpExecArray | null;
+      const drivenInClk = new Set<string>();
+      while ((sm2 = sigRe.exec(clkBody))) drivenInClk.add(sm2[1].toLowerCase());
+      for (const sig of drivenInClk) {
+        const expr = ctrlToWhen(sig, clkBody);
+        if (expr) ffDriver[sig] = { d: expr, clk: clk2, rst: rstSig, init: initOf[sig] };
+      }
+    } else {
+      // Proceso clockeado simple (sin reset): convertir if/case a when/else
+      const sigRe = /\b([a-z0-9_]+)\s*<=/gi;
+      let sm3: RegExpExecArray | null;
+      const drivenInClk = new Set<string>();
+      while ((sm3 = sigRe.exec(clkBody))) drivenInClk.add(sm3[1].toLowerCase());
+      for (const sig of drivenInClk) {
+        const expr = ctrlToWhen(sig, clkBody);
+        if (expr) ffDriver[sig] = { d: expr, clk: clkName };
+        else {
+          // Fallback: extraer asignación directa
+          const am = new RegExp(`\\b${sig}\\s*<=([^;]+);`, "i").exec(clkBody);
+          if (am) ffDriver[sig] = { d: am[1].trim(), clk: clkName };
+        }
       }
     }
+
+    // asignaciones a bits de vector: name(i) <= expr; -> registro
+    let vi: RegExpExecArray | null;
+    const vidxRe = /([a-z0-9_]+)\s*\(\s*(\d+)\s*\)\s*<=\s*([^;]+);/gi;
+    while ((vi = vidxRe.exec(body))) {
+      const nm = vi[1].trim();
+      (regAssign[nm] || (regAssign[nm] = { clk: clkName, bits: {} })).bits[+vi[2]] = vi[3].trim();
+    }
+    }
+
+  // Expandir for generate: gen: for i in 0 to N generate ... end generate;
+  let expandedSrc = src;
+  const genRe = /(\w+):\s*for\s+(\w+)\s+in\s+(\d+)\s+(?:to|downto)\s+(\d+)\s+generate\s+([\s\S]*?)end\s+generate\s*;/gi;
+  let genM: RegExpExecArray | null;
+  while ((genM = genRe.exec(src))) {
+    const label = genM[1], varName = genM[2], from = +genM[3], to = +genM[4], gbody = genM[5];
+    const step = from <= to ? 1 : -1;
+    const end = from <= to ? to : from;
+    const expansions: string[] = [];
+    for (let i = from; step > 0 ? i <= end : i >= end; i += step) {
+      expansions.push(gbody.replace(new RegExp(`\\b${varName}\\b`, "g"), String(i)));
+    }
+    expandedSrc = expandedSrc.replace(genM[0], expansions.join("\n"));
   }
 
-  const noProc = src.replace(/process\s*\([\s\S]*?\)[\s\S]*?end\s+process\s*;/gi, "");
+  const noProc = expandedSrc.replace(/process\s*\([\s\S]*?\)[\s\S]*?end\s+process\s*;/gi, "");
   const noComp = noProc.replace(/component\s+\w+\s+is[\s\S]*?end\s+component\s*;/gi, "");
-  const archStart = noComp.search(/\bbegin\b/i);
-  const archBody = archStart >= 0 ? noComp.slice(archStart + 5) : noComp;
-  const sigDriver: Record<string, string> = {};
+  // Si hay múltiples arquitecturas, tomar la última (después de "end;")
+  let archSrc = noComp;
+  const archBodies = noComp.match(/architecture\s+\w+\s+of\s+[\s\S]*?end(?:(\s+\w+)?\s*;)?/gi);
+  if (archBodies && archBodies.length > 1) archSrc = archBodies[archBodies.length - 1];
+  const archStart = archSrc.search(/\bbegin\b/i);
+  const archBody = archStart >= 0 ? archSrc.slice(archStart + 5) : archSrc;
   let am2: RegExpExecArray | null;
   const asgRe2 = /([a-z0-9_]+)\s*<=\s*([^;]+);/gi;
   while ((am2 = asgRe2.exec(archBody))) {
     const tgt = am2[1].trim();
     if (/end\b/i.test(tgt)) continue;
-    sigDriver[tgt] = am2[2].trim();
+    let rhs = am2[2].trim();
+    // Expandir (others => '0') y (others => '1') a concatenación de bits
+    rhs = rhs.replace(/\(others\s*=>\s*'([01])'\)/gi, (_, bit) => {
+      const w = vec[tgt] || 4;
+      return Array.from({ length: w }, () => `'${bit}'`).join(" & ");
+    });
+    sigDriver[tgt] = rhs;
   }
 
   // asignación seleccionada:  with SEL select TGT <= V0 when '0', V1 when '1', VD when others;
+  // También soporta multibit:  with SEL select TGT <= V0 when "00", V1 when "01", VD when others;
   let ws: RegExpExecArray | null;
   const wsRe = /with\s+(\w+)\s+select\s+(\w+)\s*<=\s*([^;]+);/gi;
   while ((ws = wsRe.exec(archBody))) {
-    const sel = ws[1],
-      tgt = ws[2];
-    let v0: string | null = null,
-      v1: string | null = null,
-      vd: string | null = null;
+    const sel = ws[1], tgt = ws[2];
+    const clauses: Array<{ vals: string[]; result: string }> = [];
+    let defaultResult: string | null = null;
     ws[3].split(",").forEach((it) => {
-      const im2 = /(.+?)\bwhen\b\s*(?:'([01])'|(others))/i.exec(it.trim());
+      const im2 = /(.+?)\bwhen\b\s*(?:"([01]+)"|'([01])'|(others))/i.exec(it.trim());
       if (im2) {
-        if (im2[2] === "0") v0 = im2[1].trim();
-        else if (im2[2] === "1") v1 = im2[1].trim();
-        else vd = im2[1].trim();
+        const result = im2[1].trim();
+        if (im2[4] === "others") defaultResult = result;
+        else {
+          const valStr = im2[2] || im2[3];
+          if (valStr) {
+            const existing = clauses.find((c) => c.result === result);
+            if (existing) existing.vals.push(valStr);
+            else clauses.push({ vals: [valStr], result });
+          }
+        }
       }
     });
-    const a0 = v0 ?? vd ?? "'0'",
-      a1 = v1 ?? vd ?? "'0'";
-    sigDriver[tgt] = `((not (${sel})) and (${a0})) or ((${sel}) and (${a1}))`;
+    // Construir expresión: ((sel="00") and v0) or ((sel="01") and v1) or default
+    let fullExpr = defaultResult || "'0'";
+    for (const clause of clauses) {
+      for (const valStr of clause.vals) {
+        const eqExpr = valStr.split("").map((b, i) => `(${sel}(${i})='${b}')`).join(" and ");
+        fullExpr = `(${eqExpr}) and (${clause.result}) or ${fullExpr}`;
+      }
+    }
+    sigDriver[tgt] = fullExpr;
+  }
+
+  // Expandir aritmética de vectores (numeric_std): a + b, a - b
+  // Resuelve `unsigned()` / `signed()` como passthrough y reemplaza `+`/`-` entre vectores
+  // por expresión de sumador completo (ripple-carry).
+  // Entrada: "res <= a + b" o "res <= unsigned(a) + unsigned(b)"
+  // Salida: señales intermedias _s0, _c0, _s1, _c1, ... en sigDriver
+  const hasNumericStd = /\bunsigned\b|\bsigned\b|\bnumeric_std\b/i.test(src);
+  if (hasNumericStd || /[+-]\s*[a-z]/i.test(archBody)) {
+    // Encontrar todas las asignaciones que contengan + o - entre operandos vectoriales
+    const arithRe = /([a-z0-9_]+)\s*<=\s*(.+?)\s*([+-])\s*(.+?)\s*;/gi;
+    let arithM: RegExpExecArray | null;
+    const stripCasts = (s: string) => s.replace(/\b(unsigned|signed)\s*\(\s*([a-z0-9_]+)\s*\)/gi, "$2").replace(/\bresize\s*\([^,]+,\s*\d+\s*\)/gi, "");
+    while ((arithM = arithRe.exec(archBody))) {
+      const tgt = arithM[1].trim();
+      const lhs = stripCasts(arithM[2].trim());
+      const op = arithM[3];
+      const rhs = stripCasts(arithM[4].trim().replace(/;$/, ""));
+      const w = vec[lhs] || vec[rhs] || 4;
+      if (!vec[lhs] && !vec[rhs]) continue; // no son vectores conocidos -> ignorar
+      if (op === "+") {
+        // sumador ripple-carry de w bits
+        let carry = "'0'";
+        for (let i = 0; i < w; i++) {
+          const ai = `${lhs}(${i})`;
+          const bi = `${rhs}(${i})`;
+          const sum = `((${ai}) xor (${bi}) xor (${carry}))`;
+          const cout = `(((${ai}) and (${bi})) or ((${ai}) and (${carry})) or ((${bi}) and (${carry})))`;
+          sigDriver[`${tgt}_arith_s${i}`] = sum;
+          carry = `${tgt}_arith_c${i + 1}`;
+          sigDriver[carry] = cout;
+        }
+        // El resultado es el bus bits _s0.._sw-1
+        const resultExpr = Array.from({ length: w }, (_, i) => `${tgt}_arith_s${i}`)
+          .reverse()
+          .join(" & ");
+        if (!sigDriver[tgt] || sigDriver[tgt] === arithM[0]) sigDriver[tgt] = resultExpr;
+      } else if (op === "-") {
+        // a - b = a + (not b) + 1
+        let carry = "'1'"; // +1 para complemento a 2
+        for (let i = 0; i < w; i++) {
+          const ai = `${lhs}(${i})`;
+          const bi = `(not ${rhs}(${i}))`; // invertir b para complemento a 2
+          const sum = `((${ai}) xor (${bi}) xor (${carry}))`;
+          const cout = `(((${ai}) and (${bi})) or ((${ai}) and (${carry})) or ((${bi}) and (${carry})))`;
+          sigDriver[`${tgt}_arith_s${i}`] = sum;
+          carry = `${tgt}_arith_c${i + 1}`;
+          sigDriver[carry] = cout;
+        }
+        const resultExpr = Array.from({ length: w }, (_, i) => `${tgt}_arith_s${i}`)
+          .reverse()
+          .join(" & ");
+        if (!sigDriver[tgt] || sigDriver[tgt] === arithM[0]) sigDriver[tgt] = resultExpr;
+      }
+    }
   }
 
   // instanciaciones de componentes:  label : comp [entity work.comp] port map ( a => x, ... );
@@ -369,6 +587,14 @@ export function buildFromVhdl(text: string): BuildResult {
       const c = mk(isClk ? "CLOCK" : "INPUT", { label: name, value: 0 });
       netOut[name] = { id: c.id, port: 0 };
     }
+  // puertos vectoriales STD_LOGIC_VECTOR -> BUSIN/BUSOUT
+  for (const name in vecPorts) {
+    const vp = vecPorts[name];
+    if (vp.dir === "in") {
+      const c = mk("BUSIN", { label: name, width: vp.width, bits: new Array(vp.width).fill(0) as Sig[] });
+      netOut[name] = { id: c.id, port: 0 };
+    }
+  }
 
   // crear nodos de las instancias y registrar las nets que producen sus salidas
   const instNodes: { node: RFNode; def: CompDef; maps: Inst["maps"] }[] = [];
@@ -488,6 +714,7 @@ export function buildFromVhdl(text: string): BuildResult {
     });
   }
 
+  // salidas escalares
   for (const name in ports)
     if (ports[name] === "out") {
       const c = mk("OUTPUT", { label: name });
@@ -497,6 +724,17 @@ export function buildFromVhdl(text: string): BuildResult {
       if (drvKey) s = buildExpr(sigDriver[drvKey]);
       else if (ffKey) s = resolveNet(name);
       if (s) wire(s, c.id, 0);
+    }
+  // salidas vectoriales -> BUSOUT
+  for (const name in vecPorts)
+    if (vecPorts[name].dir === "out") {
+      const vp = vecPorts[name];
+      const c = mk("BUSOUT", { label: name, width: vp.width, bits: new Array(vp.width).fill(0) as Sig[] });
+      const drvKey = findKey(sigDriver, name);
+      if (drvKey) {
+        const s = buildExpr(sigDriver[drvKey]);
+        if (s) wire(s, c.id, 0);
+      }
     }
 
   if (!nodes.length) throw new Error("no se encontraron puertos ni señales reconocibles");
@@ -637,6 +875,32 @@ export function lintVhdl(text: string): { line: number; msg: string }[] {
     }
   });
   if (depth > 0) out.push({ line: lines.length, msg: `${depth} paréntesis '(' sin cerrar` });
+
+  // Detección de latches implícitos
+  const procBodies = text.match(/process\s*\([\s\S]*?\)([\s\S]*?)end\s+process\s*;/gi);
+  if (procBodies) {
+    for (const pb of procBodies) {
+      const body = pb.replace(/--[^\n]*/g, "");
+      if (/\brising_edge\b/i.test(body)) continue; // solo procesos combinacionales
+      if (!/\bif\b/i.test(body) && !/\bcase\b/i.test(body)) continue;
+      // Encontrar todas las señales asignadas en el proceso
+      const assigned = new Set<string>();
+      const aRe = /\b([a-z0-9_]+)\s*<=/gi;
+      let am: RegExpExecArray | null;
+      while ((am = aRe.exec(body))) assigned.add(am[1].toLowerCase());
+      // Verificar si cada señal tiene asignación en todas las ramas
+      for (const sig of assigned) {
+        // Contar ramas if/else que asignan esta señal
+        const ifCount = (body.match(/\bif\b/gi) || []).length;
+        const elseCount = (body.match(/\belse\b/gi) || []).length;
+        const assignCount = (body.match(new RegExp(`\\b${sig}\\s*<=`, "gi")) || []).length;
+        if (ifCount > 0 && assignCount > 0 && elseCount < ifCount) {
+          const lineIdx = lines.findIndex((l) => l.toLowerCase().includes(sig));
+          out.push({ line: lineIdx >= 0 ? lineIdx + 1 : 1, msg: `posible latch implícito: '${sig}' no se asigna en todas las ramas` });
+        }
+      }
+    }
+  }
 
   /* palabras clave estructurales */
   if (!/\bentity\b/i.test(src)) out.push({ line: 1, msg: "falta la declaración 'entity'" });

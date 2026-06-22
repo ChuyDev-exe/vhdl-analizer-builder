@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="#000000"/>
+  <rect x="60" y="60" width="1080" height="510" rx="20" fill="#0a0a0b" stroke="#1c1c1f" stroke-width="2"/>
+  <text x="600" y="200" text-anchor="middle" font-family="system-ui,sans-serif" font-size="64" font-weight="800" fill="#ededef">Simulador de</text>
+  <text x="600" y="280" text-anchor="middle" font-family="system-ui,sans-serif" font-size="64" font-weight="800" fill="#34d399">Circuitos Lógicos</text>
+  <text x="600" y="350" text-anchor="middle" font-family="system-ui,sans-serif" font-size="24" fill="#6f6f78">VHDL Bidireccional · Diagrama de Tiempos · 4 Estados</text>
+  <rect x="480" y="400" width="240" height="50" rx="25" fill="#ffffff"/>
+  <text x="600" y="432" text-anchor="middle" font-family="system-ui,sans-serif" font-size="18" font-weight="700" fill="#000000">Pruébalo Gratis</text>
+  <circle cx="1050" cy="510" r="40" fill="none" stroke="#34d399" stroke-width="3"/>
+  <line x1="1035" y1="510" x2="1065" y2="510" stroke="#34d399" stroke-width="3" stroke-linecap="round"/>
+  <line x1="1050" y1="495" x2="1050" y2="525" stroke="#34d399" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="150" cy="510" r="40" fill="none" stroke="#a78bfa" stroke-width="3"/>
+  <line x1="135" y1="510" x2="165" y2="510" stroke="#a78bfa" stroke-width="3" stroke-linecap="round"/>
+  <text x="600" y="570" text-anchor="middle" font-family="system-ui,sans-serif" font-size="16" fill="#6f6f78">logicflow.dev</text>
+</svg>

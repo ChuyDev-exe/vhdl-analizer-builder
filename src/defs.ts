@@ -3,6 +3,8 @@ import { compileExpr } from "./expr";
 import type { RFNode, RFEdge, Sig, PortVal } from "./types";
 
 export const def4 = (s: Sig): s is 0 | 1 => s === 0 || s === 1;
+export const isDef = (s: Sig): boolean => s === 0 || s === 1 || s === "x" || s === "z";
+export const is0or1 = (s: Sig): s is 0 | 1 => s === 0 || s === 1;
 
 /* coerción entre valor de puerto (escalar/vector) y escalar/bus */
 export function asSig(v: PortVal | undefined): Sig {
@@ -68,6 +70,10 @@ export const NODE_DEFS: Record<string, CompDef> = {
   BUSOUT: { cat: "Buses", label: "BUS-OUT", inputs: ["D"], outputs: [] },
   SPLIT: { cat: "Buses", label: "SPLIT", inputs: ["D"], outputs: ["Q"] },
   MERGE: { cat: "Buses", label: "MERGE", inputs: ["A", "B"], outputs: ["Y"] },
+
+  /* Memoria */
+  ROM: { cat: "Secuencial / Memoria", label: "ROM", inputs: ["A", "EN"], outputs: ["D"], ico: "📖" },
+  RAM: { cat: "Secuencial / Memoria", label: "RAM", inputs: ["A", "D_IN", "WE", "CLK"], outputs: ["D_OUT"], seq: true, ico: "📝" },
 };
 
 /* puertos de bus: qué índices de un componente llevan vectores en vez de 1 bit */
@@ -80,12 +86,37 @@ export function isBusOutput(kind: string, i: number): boolean {
 export function isBus(kind: string): boolean {
   return kind === "BUSIN" || kind === "BUSOUT" || kind === "SPLIT" || kind === "MERGE";
 }
+export function isMemory(kind: string): boolean {
+  return kind === "ROM" || kind === "RAM";
+}
+export const MEM_KINDS = ["ROM", "RAM"];
 
-// álgebra de 4 estados (z se trata como x en las entradas de compuerta)
-const AND2 = (a: Sig, b: Sig): Sig => (a === 0 || b === 0 ? 0 : a === 1 && b === 1 ? 1 : "x");
-const OR2 = (a: Sig, b: Sig): Sig => (a === 1 || b === 1 ? 1 : a === 0 && b === 0 ? 0 : "x");
-const NOT1 = (a: Sig): Sig => (a === 0 ? 1 : a === 1 ? 0 : "x");
-const XOR2 = (a: Sig, b: Sig): Sig => (def4(a) && def4(b) ? ((a ^ b) as Sig) : "x");
+// álgebra de 4+2 estados (u se propaga como x, se distingue visualmente;
+// - se trata como x en compuertas pero no iguala en comparaciones)
+const uOrX = (s: Sig): boolean => s === "x" || s === "u" || s === "-";
+const AND2 = (a: Sig, b: Sig): Sig => {
+  if (a === "u" || b === "u") return "u";
+  if (a === 0 || b === 0) return 0;
+  if ((a === 1 && b === 1)) return 1;
+  return "x";
+};
+const OR2 = (a: Sig, b: Sig): Sig => {
+  if (a === "u" || b === "u") return "u";
+  if (a === 1 || b === 1) return 1;
+  if (a === 0 && b === 0) return 0;
+  return "x";
+};
+const NOT1 = (a: Sig): Sig => {
+  if (a === "u") return "u";
+  if (a === 0) return 1;
+  if (a === 1) return 0;
+  return "x";
+};
+const XOR2 = (a: Sig, b: Sig): Sig => {
+  if (a === "u" || b === "u") return "u";
+  if (is0or1(a) && is0or1(b)) return ((a ^ b) as Sig);
+  return "x";
+};
 
 export const GATE_FN: Record<string, (i: Sig[]) => Sig[]> = {
   AND: (i) => [AND2(i[0], i[1])],
@@ -128,6 +159,9 @@ export function regPorts(w: number): { inputs: string[]; outputs: string[] } {
 export function busWidth(n: RFNode): number {
   return (n.data.width as number) || 4;
 }
+export function memDepth(n: RFNode): number {
+  return (n.data.depth as number) || 16;
+}
 
 /* puertos efectivos de un nodo (REG/SPLIT/MERGE dependen de su ancho) */
 export function portsOf(n: RFNode): { inputs: string[]; outputs: string[] } {
@@ -135,6 +169,8 @@ export function portsOf(n: RFNode): { inputs: string[]; outputs: string[] } {
   if (k === "REG") return regPorts(regWidth(n));
   if (k === "SPLIT") return { inputs: ["D"], outputs: Array.from({ length: busWidth(n) }, (_, b) => "b" + b) };
   if (k === "MERGE") return { inputs: Array.from({ length: busWidth(n) }, (_, b) => "b" + b), outputs: ["Y"] };
+  if (k === "ROM") return { inputs: Array.from({ length: busWidth(n) }, (_, b) => "A" + b).concat(["EN"]), outputs: Array.from({ length: busWidth(n) }, (_, b) => "D" + b) };
+  if (k === "RAM") return { inputs: Array.from({ length: busWidth(n) }, (_, b) => "A" + b).concat(Array.from({ length: busWidth(n) }, (_, b) => "D_IN" + b), ["WE", "CLK"]), outputs: Array.from({ length: busWidth(n) }, (_, b) => "D_OUT" + b) };
   const d = getDef(k);
   return { inputs: d?.inputs || [], outputs: d?.outputs || [] };
 }

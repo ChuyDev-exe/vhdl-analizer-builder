@@ -7,6 +7,8 @@ import { useI18n } from "./i18n";
 const WAVE_KEY = "simlog.waveform.v1";
 const GROUP_KEY = "simlog.waveform.groups.v1";
 const MARKER_KEY = "simlog.waveform.markers.v1";
+const COLOR_KEY = "simlog.waveform.colors.v1";
+const REGION_KEY = "simlog.waveform.regions.v1";
 
 export interface WaveSample {
   vals: Record<string, PortVal>;
@@ -203,12 +205,34 @@ export default function Waveform({
   const [transView, setTransView] = useState(false);
   const [editingMarker, setEditingMarker] = useState<number | null>(null);
   const [markerEditVal, setMarkerEditVal] = useState("");
+  const [signalColors, setSignalColors] = useState<Record<string, string>>(() => {
+    try { return JSON.parse(localStorage.getItem(COLOR_KEY) || "{}"); } catch { return {}; }
+  });
+  const [regions, setRegions] = useState<Record<string, { start: number; end: number; label: string }>>(() => {
+    try { return JSON.parse(localStorage.getItem(REGION_KEY) || "{}"); } catch { return {}; }
+  });
+  const [regionEditing, setRegionEditing] = useState<string | null>(null);
+  const [regionEditVal, setRegionEditVal] = useState("");
+  const [measureA, setMeasureA] = useState<number | null>(null);
+  const [analogBuses, setAnalogBuses] = useState(false);
+  const [findDir, setFindDir] = useState<1 | -1>(1);
+  const [pickedColor, setPickedColor] = useState<string | null>(null);
+  const [snapHist, setSnapHist] = useState<WaveSample[] | null>(null);
+  const [compareMode, setCompareMode] = useState(false);
+  const [composites, setComposites] = useState<Record<string, string>>(() => {
+    try { return JSON.parse(localStorage.getItem("simlog.waveform.composites.v1") || "{}"); } catch { return {}; }
+  });
+  const [compositeEdit, setCompositeEdit] = useState<string | null>(null);
+  const [compositeExpr, setCompositeExpr] = useState("");
+  const [scrollPos, setScrollPos] = useState(0);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const editRef = useRef<HTMLInputElement>(null);
   const presetInput = useRef<HTMLInputElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const wavePanelRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const colorPickerRef = useRef<HTMLInputElement>(null);
   const prevHistoryLen = useRef(0);
 
   /* undo/redo */
@@ -312,6 +336,27 @@ export default function Waveform({
       /* */
     }
   }, [groups]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(COLOR_KEY, JSON.stringify(signalColors));
+    } catch {
+      /* */
+    }
+  }, [signalColors]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(REGION_KEY, JSON.stringify(regions));
+    } catch {
+      /* */
+    }
+  }, [regions]);
+  useEffect(() => {
+    try {
+      localStorage.setItem("simlog.waveform.composites.v1", JSON.stringify(composites));
+    } catch {
+      /* */
+    }
+  }, [composites]);
 
   /* auto-scroll: cuando llegan nuevos datos, desplazar a la derecha */
   useEffect(() => {
@@ -427,6 +472,23 @@ export default function Waveform({
   const displayIndices = transView ? transIndices : history.length > 0 ? Array.from({ length: history.length }, (_, i) => i) : [];
   const displayLen = displayIndices.length;
 
+  const labelW = 184,
+    ctrlW = 92,
+    rowH = 36,
+    top = 26;
+  const padRight = 20;
+
+  /* Virtualización: cuando displayLen > 500, solo renderizar ciclos visibles */
+  const useVirtual = displayLen > 500;
+  const scrollEl = scrollRef.current;
+  const viewW = scrollEl?.clientWidth || 800;
+  const virtStart = useVirtual ? Math.max(0, Math.floor((scrollPos - labelW) / stepW) - 2) : 0;
+  const virtEnd = useVirtual ? Math.min(displayLen, Math.ceil((scrollPos - labelW + viewW) / stepW) + 2) : displayLen;
+  const virtIndices = useVirtual ? displayIndices.slice(virtStart, virtEnd) : displayIndices;
+  const virtOffset = useVirtual ? virtStart * stepW : 0;
+
+  const width = labelW + Math.max(20, displayLen) * stepW + padRight;
+
   const move = (id: string, dir: -1 | 1) => {
     saveWaveSnap();
     const ids = rows.map((r) => r.id);
@@ -518,14 +580,6 @@ export default function Waveform({
     });
   };
 
-  const labelW = 184,
-    ctrlW = 92,
-    rowH = 36,
-    top = 26;
-  const padRight = 20;
-  const width = labelW + Math.max(20, displayLen) * stepW + padRight;
-  const height = top + rows.length * rowH + 10;
-
   const onWheel = useCallback((e: React.WheelEvent) => {
     if (e.deltaY !== 0) {
       e.preventDefault();
@@ -553,19 +607,37 @@ export default function Waveform({
     const x = e.clientX - rect.left + (svgRef.current!.parentElement?.scrollLeft || 0);
     const n2 = displayIndices.length;
     const idx = Math.floor((x - labelW) / stepW);
-    if (idx >= 0 && idx < n2) {
-      const actualIdx = displayIndices[idx];
-      setMarkers((m) => {
-        if (m[actualIdx] !== undefined) {
-          const n = { ...m };
-          delete n[actualIdx];
-          return n;
-        }
-        return { ...m, [actualIdx]: "" };
-      });
-      setEditingMarker(actualIdx);
-      setMarkerEditVal(markers[actualIdx] || "");
+    if (idx < 0 || idx >= n2) return;
+    const actualIdx = displayIndices[idx];
+    if (e.shiftKey) {
+      // Shift+click: toggle measurement point
+      if (measureA === actualIdx) {
+        setMeasureA(null);
+      } else if (measureA !== null) {
+        setMeasureA(null); // second click completes measurement (shown in header)
+      } else {
+        setMeasureA(actualIdx);
+      }
+      return;
     }
+    if (e.altKey) {
+      // Alt+click: copy value of hovered signal
+      if (hoverRow !== null && rows[hoverRow]) {
+        copyValue(rows[hoverRow], idx);
+      }
+      return;
+    }
+    // Normal click: toggle marker
+    setMarkers((m) => {
+      if (m[actualIdx] !== undefined) {
+        const n = { ...m };
+        delete n[actualIdx];
+        return n;
+      }
+      return { ...m, [actualIdx]: "" };
+    });
+    setEditingMarker(actualIdx);
+    setMarkerEditVal(markers[actualIdx] || "");
   };
 
   const cursorIdx = cursor !== null ? displayIndices[cursor] : null;
@@ -691,12 +763,165 @@ export default function Waveform({
     r.readAsText(file);
   };
 
+  const colorOf = (r: Row): string => {
+    return signalColors[r.id] || "";
+  };
+
+  const findEdge = (from: number, dir: 1 | -1, rising: boolean): number | null => {
+    const searchIdx = displayIndices;
+    const searchRows = allRowsRef.current;
+    let i = searchIdx.indexOf(from);
+    if (i < 0) i = 0;
+    const start = i + dir;
+    const valAt = (row: Row, idx: number): PortVal | undefined => {
+      if (row.id.startsWith("__comp:")) {
+        const cid = row.id.slice(8);
+        const expr = composites[cid];
+        if (!expr) return undefined;
+        return evalComposite(expr, idx);
+      }
+      const actualIdx = searchIdx[idx];
+      if (actualIdx === undefined) return undefined;
+      return history[actualIdx]?.vals[row.id];
+    };
+    if (dir > 0) {
+      for (let j = start; j < searchIdx.length; j++) {
+        for (const row of searchRows) {
+          if (row.kind !== "sig" || !isVisible(row.id)) continue;
+          const pv = valAt(row, j - 1);
+          const cv = valAt(row, j);
+          if (typeof pv === "number" && typeof cv === "number") {
+            if (rising && pv === 0 && cv === 1) return searchIdx[j];
+            if (!rising && pv === 1 && cv === 0) return searchIdx[j];
+          }
+        }
+      }
+    } else {
+      for (let j = start; j >= 0; j--) {
+        for (const row of searchRows) {
+          if (row.kind !== "sig" || !isVisible(row.id)) continue;
+          const pv = valAt(row, j);
+          const cv = valAt(row, j + 1);
+          if (typeof pv === "number" && typeof cv === "number") {
+            if (rising && pv === 0 && cv === 1) return searchIdx[j + 1];
+            if (!rising && pv === 1 && cv === 0) return searchIdx[j + 1];
+          }
+        }
+      }
+    }
+    return null;
+  };
+
+  const copyValue = async (row: Row, idx: number) => {
+    if (idx < 0 || idx >= history.length) return;
+    const actualIdx = displayIndices[idx];
+    const raw = history[actualIdx]?.vals[row.id];
+    let text: string;
+    if (row.kind === "bus") {
+      const bits = row.busBits
+        ? row.busBits.map((bid) => {
+            const v = history[actualIdx]?.vals[bid];
+            return v === 1 ? 1 : (0 as Sig);
+          })
+        : Array.isArray(raw)
+          ? raw.map((b) => (typeof b === "number" ? b : 0) as Sig)
+          : [];
+      text = radixPrefix[radix] + fmtBits(bits, radix);
+    } else {
+      text = Array.isArray(raw) ? "x" : String(raw ?? "z");
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      /* */
+    }
+  };
+
+  /* Evaluar una expresión booleana compuesta para un índice dado */
+  const evalComposite = (expr: string, idx: number): Sig => {
+    const actualIdx = displayIndices[idx];
+    if (actualIdx === undefined) return 0;
+    const resolveName = (name: string): Sig => {
+      // Buscar en filas de señal
+      for (const row of rows) {
+        if (row.kind !== "sig") continue;
+        const label = (names[row.id] ?? row.label).toLowerCase();
+        if (label === name.toLowerCase()) {
+          const v = history[actualIdx]?.vals[row.id];
+          return (typeof v === "number" ? v : 0) as Sig;
+        }
+        if (row.id.toLowerCase() === name.toLowerCase()) {
+          const v = history[actualIdx]?.vals[row.id];
+          return (typeof v === "number" ? v : 0) as Sig;
+        }
+      }
+      return 0;
+    };
+    // Parser simple: NOT X, X AND Y, X OR Y, X XOR Y, (EXPR)
+    const tokens = expr.match(/\(|\)|NOT|AND|OR|XOR|[^\s()]+/gi) || [];
+    const output: (Sig | string)[] = [];
+    for (let i = 0; i < tokens.length; i++) {
+      const t = tokens[i].toUpperCase();
+      if (t === "(") output.push(t);
+      else if (t === ")") {
+        const sub: (Sig | string)[] = [];
+        while (output.length && output[output.length - 1] !== "(") sub.unshift(output.pop()!);
+        output.pop(); // remove (
+        if (sub.length === 1 && typeof sub[0] === "number") output.push(sub[0]);
+        else if (sub.length >= 3) {
+          let acc = sub[0] as Sig;
+          for (let j = 1; j < sub.length; j += 2) {
+            const op = sub[j] as string;
+            const rhs = sub[j + 1] as Sig;
+            if (op === "AND") acc = (acc === 1 && rhs === 1 ? 1 : 0) as Sig;
+            else if (op === "OR") acc = (acc === 1 || rhs === 1 ? 1 : 0) as Sig;
+            else if (op === "XOR") acc = (acc !== rhs ? 1 : 0) as Sig;
+          }
+          output.push(acc);
+        } else output.push(0);
+      } else if (t === "NOT") {
+        const next = resolveName(tokens[i + 1]);
+        output.push(next === 1 ? 0 : 1);
+        i++;
+      } else if (t === "AND" || t === "OR" || t === "XOR") output.push(t);
+      else output.push(resolveName(t));
+    }
+    // Evaluar lo que quede
+    let result = output[0] as Sig;
+    for (let j = 1; j < output.length; j += 2) {
+      const op = output[j] as string;
+      const rhs = output[j + 1] as Sig;
+      if (op === "AND") result = (result === 1 && rhs === 1 ? 1 : 0) as Sig;
+      else if (op === "OR") result = (result === 1 || rhs === 1 ? 1 : 0) as Sig;
+      else if (op === "XOR") result = (result !== rhs ? 1 : 0) as Sig;
+    }
+    return result;
+  };
+
+  const compositeRows: Row[] = useMemo(() => {
+    return Object.entries(composites).map(([id, expr]) => ({
+      id: "__comp:" + id,
+      label: expr || "expr",
+      kind: "sig" as const,
+      cls: "comp",
+    }));
+  }, [composites]);
+
+  const allRows = useMemo(() => [...rows, ...compositeRows], [rows, compositeRows]);
+  const allRowsRef = useRef(allRows);
+  allRowsRef.current = allRows;
+  const height = top + allRows.length * rowH + 10;
+
   const headerParts: string[] = [];
   if (cursorIdx !== null) headerParts.push(t("wave.cursor_info", { n: cursorIdx, t: cursorIdx * 10 }));
   const markerList = Object.entries(markers);
   if (cursorIdx !== null && markerList.length > 0) {
     const deltas = markerList.map(([k, lbl]) => `Δ${lbl ? "(" + lbl + ")" : ""}=${Math.abs(cursorIdx - Number(k)) * 10}ns`).join(" ");
     headerParts.push(deltas);
+  }
+  if (measureA !== null && cursorIdx !== null) {
+    const delta = Math.abs(cursorIdx - measureA) * 10;
+    headerParts.push(`📏 ${delta}ns`);
   }
   if (transView) headerParts.push(t("wave.trans_view"));
 
@@ -728,6 +953,9 @@ export default function Waveform({
           >
             {transView ? t("wave.trans_on") : t("wave.trans_off")}
           </button>
+          <button className="btn btn-small" disabled={cursorIdx === null} onClick={() => { const idx = findEdge(cursorIdx!, 1, true); if (idx !== null) { const di = displayIndices.indexOf(idx); if (di >= 0) setCursor(di); } }} title="Find next rising edge">↗</button>
+          <button className="btn btn-small" disabled={cursorIdx === null} onClick={() => { const idx = findEdge(cursorIdx!, 1, false); if (idx !== null) { const di = displayIndices.indexOf(idx); if (di >= 0) setCursor(di); } }} title="Find next falling edge">↘</button>
+          <button className={"btn btn-small" + (analogBuses ? " btn-primary" : "")} onClick={() => setAnalogBuses((v) => !v)} title="Analog bus view">📈</button>
           <button className="btn btn-small" onClick={exportPng} aria-label={t("wave.export_png")}>
             {t("wave.export_png")}
           </button>
@@ -772,6 +1000,13 @@ export default function Waveform({
           <button className="btn btn-small" title={t("wave.group_add_title")} onClick={createGroup} aria-label={t("wave.aria.btn_group")}>
             {t("wave.group_add")}
           </button>
+          <button className="btn btn-small" disabled={measureA === null || cursorIdx === null} onClick={() => { if (measureA !== null && cursorIdx !== null) { const rid = "r" + Date.now(); setRegions((r) => ({ ...r, [rid]: { start: Math.min(measureA, cursorIdx), end: Math.max(measureA, cursorIdx), label: `R${Object.keys(regions).length + 1}` } })); } }} title={t("wave.region_add_title")}>
+            {t("wave.region_add")}
+          </button>
+          <button className="btn btn-small" onClick={() => { setSnapHist([...history]); setCompareMode(true); }} title="Snapshot current state for comparison">{t("wave.snapshot")}</button>
+          {snapHist && <button className={"btn btn-small" + (compareMode ? " btn-primary" : "")} onClick={() => { setCompareMode((v) => !v); }} title={t("wave.compare_title")}>{t("wave.compare")}</button>}
+          {snapHist && compareMode && <button className="btn btn-small" onClick={() => { setSnapHist(null); setCompareMode(false); }} title={t("wave.compare_clear")}>{t("wave.compare_clear")}</button>}
+          <button className="btn btn-small" onClick={() => { const id = "c" + Date.now(); setComposites((c) => ({ ...c, [id]: "" })); setCompositeEdit(id); setCompositeExpr(""); }} title={t("wave.comp_add_title")}>{t("wave.comp_add")}</button>
           <input
             ref={presetInput}
             type="file"
@@ -799,7 +1034,7 @@ export default function Waveform({
           </button>
         </div>
       </div>
-      <div className="wave-scroll" ref={scrollRef}>
+      <div className="wave-scroll" ref={scrollRef} onScroll={(e) => setScrollPos((e.target as HTMLElement).scrollLeft)}>
         <svg
           ref={svgRef}
           width={width}
@@ -818,6 +1053,30 @@ export default function Waveform({
           <rect x={0} y={0} width={width} height={height} fill="#000" />
           {hoverRow !== null && <rect x={0} y={top + hoverRow * rowH} width={width} height={rowH} className="wave-hover-row" />}
           {cursorIdx !== null && <line className="wave-cursor" x1={cursorX} y1={top} x2={cursorX} y2={height - 6} />}
+          {measureA !== null && cursorIdx !== null && measureA !== cursorIdx && (() => {
+            const mi = displayIndices.indexOf(measureA);
+            if (mi < 0) return null;
+            const ax = labelW + mi * stepW + stepW / 2;
+            const delta = Math.abs(cursorIdx - measureA) * 10;
+            const midX = (ax + cursorX) / 2;
+            const midY = top - 6;
+            return (
+              <g>
+                <line className="wave-measure" x1={ax} y1={top} x2={cursorX} y2={top} />
+                <line className="wave-measure" x1={ax} y1={top - 4} x2={ax} y2={top + 4} />
+                <line className="wave-measure" x1={cursorX} y1={top - 4} x2={cursorX} y2={top + 4} />
+                <text x={midX} y={midY} textAnchor="middle" className="wave-tick" fill="#fbbf24" fontSize={10}>
+                  {delta}ns
+                </text>
+              </g>
+            );
+          })()}
+          {measureA !== null && cursorIdx === null && (() => {
+            const mi = displayIndices.indexOf(measureA);
+            if (mi < 0) return null;
+            const ax = labelW + mi * stepW + stepW / 2;
+            return <line className="wave-cursor" x1={ax} y1={top} x2={ax} y2={height - 6} stroke="#fbbf24" />;
+          })()}
           {markerEntries.map(([k, lbl]) => {
             const idx = displayIndices.indexOf(Number(k));
             if (idx < 0) return null;
@@ -867,6 +1126,36 @@ export default function Waveform({
             );
           })}
           <line className="wave-sep" x1={labelW - 1} y1={top - 4} x2={labelW - 1} y2={height - 6} />
+          {Object.entries(regions).map(([rid, rgn]) => {
+            const si = displayIndices.indexOf(rgn.start);
+            const ei = displayIndices.indexOf(rgn.end);
+            if (si < 0 || ei < 0) return null;
+            const rx = labelW + Math.min(si, ei) * stepW;
+            const rw = Math.abs(ei - si) * stepW;
+            const rmX = rx + rw - 2;
+            const commitRegionEdit = (v: string) => setRegions((r) => ({ ...r, [rid]: { ...r[rid], label: v } }));
+            const deleteRegion = () => setRegions((r) => { const n = { ...r }; delete n[rid]; return n; });
+            const startEdit = () => { setRegionEditing(rid); setRegionEditVal(rgn.label); };
+            const blurEdit = () => { commitRegionEdit(regionEditVal); setRegionEditing(null); };
+            const keyEdit = (e: React.KeyboardEvent) => { if (e.key === "Enter") blurEdit(); if (e.key === "Escape") setRegionEditing(null); };
+            return (
+              <g key={rid}>
+                <rect x={rx} y={top} width={rw} height={height - top - 10} fill="rgba(96,165,250,0.06)" stroke="rgba(96,165,250,0.2)" strokeWidth={1} strokeDasharray="4 2" />
+                {regionEditing === rid ? (
+                  <foreignObject x={rx} y={top + 2} width={Math.min(rw, 120)} height={20}>
+                    <input className="wave-rename-input" value={regionEditVal} onChange={(e) => setRegionEditVal(e.target.value)} onBlur={blurEdit} onKeyDown={keyEdit} style={{ width: Math.min(rw, 110), fontSize: 10 }} autoFocus />
+                  </foreignObject>
+                ) : (
+                  <g>
+                    <text x={rx + 4} y={top + 14} className="wave-tick" fill="#60a5fa" fontSize={9} style={{ cursor: "pointer" }} onClick={startEdit}>
+                      {rgn.label || rid}
+                    </text>
+                    <text x={rmX - 2} y={top + 14} className="wave-tick" fill="#f87171" fontSize={9} style={{ cursor: "pointer" }} onClick={deleteRegion}>✕</text>
+                  </g>
+                )}
+              </g>
+            );
+          })}
           <text x={6} y={top - 8} className="wave-tick">
             {t("wave.header_dt")}
           </text>
@@ -878,7 +1167,7 @@ export default function Waveform({
               </text>
             </g>
           ))}
-          {rows.map((r, ri) => {
+          {allRows.map((r, ri) => {
             const y0 = top + ri * rowH,
               yc = y0 + rowH / 2 + 4;
             const sep = <line className="wave-sep" x1={0} y1={y0 + rowH} x2={width} y2={y0 + rowH} />;
@@ -950,21 +1239,45 @@ export default function Waveform({
               );
             }
 
+            const isComposite = r.id.startsWith("__comp:");
             const controls = (
               <g className="wave-ctl" opacity={hidden ? 0.35 : 1}>
+                {isComposite ? (
+                  <g>
+                    {ctrlBtn(4, () => { setComposites((c) => { const n = { ...c }; delete n[r.id.slice(8)]; return n; }); }, <text x={2} y={15} fontSize={13} fill="#f87171">✕</text>, "Delete expression")}
+                  </g>
+                ) : (
+                  <>
                 {ctrlBtn(4, () => toggleVis(r.id), <EyeIcon on={!hidden} />, t(hidden ? "wave.vis_show" : "wave.vis_hide"))}
                 {ctrlBtn(34, () => move(r.id, -1), <CtrlIcon type="up" />, t("wave.move_up"))}
                 {ctrlBtn(60, () => move(r.id, 1), <CtrlIcon type="down" />, t("wave.move_down"))}
+                {(() => {
+                  const c = colorOf(r);
+                  return (
+                    <g>
+                      <rect x={86} y={btnY + 4} width={12} height={12} rx={2} fill={c || "#555"} stroke={c ? "var(--border)" : "none"} strokeWidth={1} style={{ cursor: "pointer" }} onClick={() => { setPickedColor(r.id); colorPickerRef.current?.click(); }} />
+                      {pickedColor === r.id && <input ref={colorPickerRef} type="color" value={c || "#ffffff"} onChange={(e) => { setSignalColors((s) => ({ ...s, [r.id]: e.target.value === "#ffffff" ? "" : e.target.value })); setPickedColor(null); }} style={{ position: "absolute", width: 0, height: 0, opacity: 0 }} />}
+                    </g>
+                  );
+                })()}
+                </>
+                )}
                 {isEditing ? (
                   <foreignObject x={ctrlW} y={y0 + 4} width={labelW - ctrlW - 4} height={24}>
                     <input
                       ref={editRef}
                       className="wave-rename-input"
-                      value={editValue}
-                      onChange={(e) => setEditValue(e.target.value)}
-                      onBlur={() => commitRename(r.id)}
+                      value={isComposite ? composites[r.id.slice(8)] || "" : editValue}
+                      onChange={(e) => {
+                        if (isComposite) {
+                          setComposites((c) => ({ ...c, [r.id.slice(8)]: e.target.value }));
+                        } else {
+                          setEditValue(e.target.value);
+                        }
+                      }}
+                      onBlur={() => isComposite ? setEditing(null) : commitRename(r.id)}
                       onKeyDown={(e) => {
-                        if (e.key === "Enter") commitRename(r.id);
+                        if (e.key === "Enter") { if (isComposite) { setComposites((c) => { const n = { ...c }; if (!n[r.id.slice(8)]) delete n[r.id.slice(8)]; return n; }); setEditing(null); } else commitRename(r.id); }
                         if (e.key === "Escape") setEditing(null);
                       }}
                     />
@@ -1001,7 +1314,7 @@ export default function Waveform({
             const cval =
               cursorIdx !== null && !hidden ? (
                 <text x={cursorX - 4} y={y0 + 12} textAnchor="end" className="wave-cval" clipPath="url(#wave-clip)">
-                  {valAtRaw(r, cursor!)}
+                  {isComposite ? (() => { const ci = cursor!; const ci2 = displayIndices[ci]; if (ci2 === undefined) return "z"; return String(evalComposite(composites[r.id.slice(8)] || "", ci)); })() : valAtRaw(r, cursor!)}
                 </text>
               ) : null;
             if (hidden)
@@ -1012,9 +1325,55 @@ export default function Waveform({
                 </g>
               );
             if (r.kind === "bus") {
+              if (analogBuses) {
+                // Analog view: draw a line chart of the numeric value
+                const vals: number[] = [];
+                let maxVal = 1;
+                const analogIter = useVirtual ? virtIndices : displayIndices;
+                for (let vi4 = 0; vi4 < analogIter.length; vi4++) {
+                  const actualIdx = analogIter[vi4];
+                  const di4 = useVirtual ? virtStart + vi4 : vi4;
+                  const bitsOrVal = history[actualIdx]?.vals[r.id];
+                  let numVal = 0;
+                  if (r.busBits) {
+                    const bitVals = r.busBits.map((bid) => {
+                      const v = history[actualIdx]?.vals[bid];
+                      return (v === 1 || v === 0 ? v : 0) as Sig;
+                    });
+                    if (bitVals.length && bitVals.every((b) => b === 0 || b === 1))
+                      numVal = bitVals.reduce<number>((a, b, i) => a + (b as number) * (1 << i), 0);
+                  } else if (Array.isArray(bitsOrVal)) {
+                    const bits = (bitsOrVal as Sig[]).map((b) => (typeof b === "number" ? b : 0) as Sig);
+                    if (bits.length && bits.every((b) => b === 0 || b === 1))
+                      numVal = bits.reduce<number>((a, b, i) => a + b * (1 << i), 0);
+                  }
+                  vals.push(numVal);
+                  if (numVal > maxVal) maxVal = numVal;
+                }
+                if (maxVal === 0) maxVal = 1;
+                const midBand = y0 + rowH / 2;
+                const amp = (rowH - 16) / 2;
+                let d = "";
+                for (let vi4 = 0; vi4 < vals.length; vi4++) {
+                  const x = labelW + (useVirtual ? virtStart + vi4 : vi4) * stepW;
+                  const y = midBand - amp * (vals[vi4] / maxVal);
+                  d += vi4 === 0 ? `M ${x} ${y}` : ` L ${x} ${y}`;
+                }
+                const analogColor = signalColors[r.id] || "var(--accent)";
+                return (
+                  <g key={r.id}>
+                    {sep}
+                    {controls}
+                    {d && <path className="wave-line" d={d} stroke={analogColor || undefined} clipPath="url(#wave-clip)" />}
+                    {cval}
+                  </g>
+                );
+              }
               const busTexts: string[] = [];
-              for (let i = 0; i < displayLen; i++) {
-                const actualIdx = displayIndices[i];
+              const busIter = useVirtual ? virtIndices : displayIndices;
+              for (let vi3 = 0; vi3 < busIter.length; vi3++) {
+                const actualIdx = busIter[vi3];
+                const di3 = useVirtual ? virtStart + vi3 : vi3;
                 const bitsOrVal = history[actualIdx]?.vals[r.id];
                 if (r.busBits) {
                   const bitVals = r.busBits.map((bid) => {
@@ -1030,8 +1389,8 @@ export default function Waveform({
               }
               const y = y0 + rowH - 4;
               const fontSize = Math.min(12, stepW * 0.45);
-              const texts = busTexts.map((t, i) => (
-                <text key={i} x={labelW + i * stepW + 2} y={y} className="wave-label" fontSize={fontSize} fill="var(--on)" clipPath="url(#wave-clip)">
+              const texts = busTexts.map((t, vi3) => (
+                <text key={vi3} x={labelW + (useVirtual ? virtStart + vi3 : vi3) * stepW + 2} y={y} className="wave-label" fontSize={fontSize} fill="var(--on)" clipPath="url(#wave-clip)">
                   {t}
                 </text>
               ));
@@ -1048,18 +1407,27 @@ export default function Waveform({
               lo = y0 + rowH - 9,
               mid = y0 + rowH / 2;
             const yOf = (v: Sig) => (v === 1 ? hi : v === 0 ? lo : mid);
+            const customColor = colorOf(r);
             let d = "",
               prevY: number | null = null,
               anyUndef = false;
-            for (let i = 0; i < displayLen; i++) {
-              const actualIdx = displayIndices[i];
-              const raw = history[actualIdx]?.vals[r.id];
+            const iterIndices = useVirtual ? virtIndices : displayIndices;
+            for (let vi = 0; vi < iterIndices.length; vi++) {
+              const actualIdx = iterIndices[vi];
+              const di = useVirtual ? virtStart + vi : vi;
+              let raw: PortVal | undefined;
+              if (isComposite) {
+                const cid = r.id.slice(8);
+                raw = composites[cid] ? evalComposite(composites[cid], vi) : 0;
+              } else {
+                raw = history[actualIdx]?.vals[r.id];
+              }
               const v: Sig = Array.isArray(raw) ? "x" : (raw ?? "z");
               if (v !== 0 && v !== 1) anyUndef = true;
               const y = yOf(v);
-              const x = labelW + i * stepW,
-                xn = labelW + (i + 1) * stepW;
-              if (i === 0) d += `M ${x} ${y}`;
+              const x = labelW + di * stepW,
+                xn = labelW + (di + 1) * stepW;
+              if (vi === 0) d += `M ${x} ${y}`;
               else if (prevY !== y) d += ` L ${x} ${prevY} L ${x} ${y}`;
               d += ` L ${xn} ${y}`;
               prevY = y;
@@ -1078,7 +1446,24 @@ export default function Waveform({
               <g key={r.id}>
                 {sep}
                 {controls}
-                {d && <path className={"wave-line " + r.cls + (anyUndef ? " undef" : "")} d={d} clipPath="url(#wave-clip)" />}
+                {d && <path className={"wave-line " + r.cls + (anyUndef ? " undef" : "")} d={d} clipPath="url(#wave-clip)" stroke={customColor || undefined} />}
+                {compareMode && snapHist && !isComposite && (() => {
+                  // Overlay snapshot waveform
+                  let sd = "", sprevY: number | null = null;
+                  for (let vi2 = 0; vi2 < iterIndices.length; vi2++) {
+                    const actualIdx = iterIndices[vi2];
+                    const di2 = useVirtual ? virtStart + vi2 : vi2;
+                    const raw = snapHist[actualIdx]?.vals[r.id];
+                    const v: Sig = Array.isArray(raw) ? "x" : (raw ?? "z");
+                    const y = yOf(v);
+                    const x = labelW + di2 * stepW, xn = labelW + (di2 + 1) * stepW;
+                    if (vi2 === 0) sd += `M ${x} ${y}`;
+                    else if (sprevY !== y) sd += ` L ${x} ${sprevY} L ${x} ${y}`;
+                    sd += ` L ${xn} ${y}`;
+                    sprevY = y;
+                  }
+                  return sd ? <path className="wave-line" d={sd} clipPath="url(#wave-clip)" stroke="#60a5fa" opacity={0.35} strokeDasharray="6 3" /> : null;
+                })()}
                 {glitches}
                 {cval}
               </g>

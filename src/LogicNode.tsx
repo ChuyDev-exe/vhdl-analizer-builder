@@ -304,6 +304,7 @@ export default function LogicNode({ id, data, selected }: NodeProps) {
           <>
             <div className="lnode-led" style={led(d.value)} />
             {d.kind === "CLOCK" && (
+              <>
               <select
                 className="nodrag reg-width"
                 title={t("logic.clk_div")}
@@ -317,6 +318,22 @@ export default function LogicNode({ id, data, selected }: NodeProps) {
                   </option>
                 ))}
               </select>
+              {(d.div as number) !== 1 && (
+              <select
+                className="nodrag reg-width"
+                title={t("logic.clk_duty")}
+                value={(d.duty as number) ?? 50}
+                onChange={(e) => setNodeData(id, { duty: +e.target.value })}
+                onPointerDown={stop}
+              >
+                {[25, 50, 75].map((n) => (
+                  <option key={n} value={n}>
+                    {n}%
+                  </option>
+                ))}
+              </select>
+              )}
+              </>
             )}
           </>
         )}

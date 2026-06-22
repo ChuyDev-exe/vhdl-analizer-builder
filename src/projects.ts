@@ -12,6 +12,7 @@ export interface ProjectMeta {
   desc?: string;
   tags?: string[];
   ver?: number;
+  cloud?: boolean;
 }
 
 export interface ProjectData {
@@ -160,6 +161,46 @@ function removeFavorite(name: string): void {
   } catch {
     /* */
   }
+}
+
+/* ---------- Papelera (trash) ---------- */
+
+export const TRASH_KEY = "simlog.trash";
+export const TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+
+export interface TrashItem {
+  name: string;
+  deletedAt: number;
+  data: ProjectData;
+}
+
+export function getTrash(): TrashItem[] {
+  try { return JSON.parse(localStorage.getItem(TRASH_KEY) || "[]"); } catch { return []; }
+}
+
+export function saveTrash(items: TrashItem[]) {
+  localStorage.setItem(TRASH_KEY, JSON.stringify(items));
+}
+
+/* ---------- Historial de versiones ---------- */
+
+export const VERSIONS_PREFIX = "simlog.versions.";
+
+export interface VersionEntry {
+  ts: number;
+  data: ProjectData;
+  label?: string;
+}
+
+export function getVersions(name: string): VersionEntry[] {
+  try { return JSON.parse(localStorage.getItem(VERSIONS_PREFIX + name) || "[]"); } catch { return []; }
+}
+
+export function pushVersion(name: string, data: ProjectData, label?: string) {
+  const versions = getVersions(name);
+  versions.unshift({ ts: Date.now(), data: { ...data, ver: (data.ver || 0) } as ProjectData, label });
+  if (versions.length > 20) versions.length = 20;
+  localStorage.setItem(VERSIONS_PREFIX + name, JSON.stringify(versions));
 }
 
 /* ---------- Autosave interval ---------- */

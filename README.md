@@ -1,4 +1,4 @@
-# Simulador de Circuitos Lógicos · VHDL ⇄ Diagrama
+# LogicFlow · Simulador de Circuitos Lógicos
 
 Editor de circuitos lógicos estilo Xilinx ISE, hecho con **Node + Vite + React + TypeScript**.
 Simulación con lógica de 4 estados (0/1/X/Z), buses multibit y diagrama de tiempos interactivo.
@@ -68,8 +68,8 @@ npx netlify-cli deploy --prod --dir=dist
 ### Docker
 
 ```bash
-docker build -t simulador-logico .
-docker run -p 8080:80 simulador-logico
+docker build -t logicflow .
+docker run -p 8080:80 logicflow
 ```
 
 ### Variables de entorno
